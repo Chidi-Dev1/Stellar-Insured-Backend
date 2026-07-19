@@ -9,7 +9,7 @@ export class EncryptionService {
   private readonly activeKeyVersion: string;
 
   constructor(private readonly configService: ConfigService) {
-    const keysConfig = this.configService.get<string>('ENCRYPTION_KEYS');
+    const keysConfig = this.configService.get<string>('app.encryptionKeys');
     if (!keysConfig) {
       throw new Error('ENCRYPTION_KEYS environment variable is required');
     }

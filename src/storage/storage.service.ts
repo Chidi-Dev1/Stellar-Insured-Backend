@@ -30,9 +30,9 @@ export class StorageService {
     @InjectQueue(QUEUE_NAMES.IPFS_PIN)
     private readonly ipfsPinQueue: Queue<IpfsPinJobData>,
   ) {
-    const ipfsHost = this.config.get<string>('IPFS_HOST') || 'localhost';
-    const ipfsPort = this.config.get<number>('IPFS_PORT') || 5001;
-    const ipfsProtocol = this.config.get<string>('IPFS_PROTOCOL') || 'http';
+    const ipfsHost = this.config.get<string>('storage.ipfs.host') || 'localhost';
+    const ipfsPort = this.config.get<number>('storage.ipfs.port') || 5001;
+    const ipfsProtocol = this.config.get<string>('storage.ipfs.protocol') || 'http';
     
     this.ipfs = create({
       host: ipfsHost,

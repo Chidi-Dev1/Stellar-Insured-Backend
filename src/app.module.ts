@@ -9,6 +9,10 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { validateEnv } from './config/env.validation';
 
+import appConfig from './config/app.config';
+import notificationConfig from './config/notification.config';
+import storageConfig from './config/storage.config';
+
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { NonceModule } from './nonce/nonce.module';         // ← NEW
@@ -34,6 +38,7 @@ import { ResponseTransformInterceptor } from './common/interceptors/response.int
       isGlobal: true,
       envFilePath: '.env',
       validate: validateEnv,
+      load: [appConfig, notificationConfig, storageConfig],
     }),
 
     ThrottlerModule.forRootAsync({
