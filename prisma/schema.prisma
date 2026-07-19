@@ -317,6 +317,25 @@ model ProcessedEvent {
   @@map("processed_events")
 }
 
+model QuarantinedEvent {
+  id              String   @id @default(cuid())
+  eventId         String   @unique @map("event_id")
+  network         String
+  contractId      String   @map("contract_id")
+  eventType       String   @map("event_type")
+  ledgerSeq       Int      @map("ledger_seq")
+  transactionHash String   @map("transaction_hash")
+  rawXdr          String   @map("raw_xdr")
+  reason          String
+  createdAt       DateTime @default(now()) @map("created_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  @@index([network, ledgerSeq])
+  @@index([contractId, eventType])
+  @@index([deletedAt])
+  @@map("quarantined_events")
+}
+
 model IndexerLog {
   id        String    @id @default(cuid())
   level     String

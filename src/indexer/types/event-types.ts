@@ -94,6 +94,11 @@ export interface SorobanEvent {
 
 /**
  * Parsed contract event with structured data
+ *
+ * `data` holds decoded, typed on-chain fields (NOT raw XDR). When decoding
+ * fails the payload is quarantined: `data` still carries a `_quarantined`
+ * marker (see XdrDecoderService) and `quarantined` is set so handlers and
+ * persistence can skip it gracefully.
  */
 export interface ParsedContractEvent {
   eventId: string;
@@ -102,8 +107,25 @@ export interface ParsedContractEvent {
   contractId: string;
   eventType: ContractEventType;
   transactionHash: string;
-  data: Record<string, unknown>;
+  data: DecodedEventData;
+  quarantined: boolean;
   inSuccessfulContractCall: boolean;
+}
+
+/**
+ * Decoded event payload. May be a known structured shape (one of the
+ * `*Event` interfaces below) or, on decode failure, a quarantine marker.
+ */
+export type DecodedEventData = Record<string, unknown> & Partial<QuarantineMarker>;
+
+/**
+ * Marker attached to payloads that could not be decoded. These are persisted
+ * to the quarantine table rather than the domain tables.
+ */
+export interface QuarantineMarker {
+  _quarantined: true;
+  _quarantineReason: string;
+  rawXdr: string;
 }
 
 /**
@@ -118,6 +140,15 @@ export interface ProjectCreatedEvent {
 }
 
 /**
+ * Project funded event data
+ */
+export interface ProjectFundedEvent {
+  projectId: number;
+  amount: string;
+  totalRaised: string;
+}
+
+/**
  * Contribution made event data
  */
 export interface ContributionMadeEvent {
@@ -128,12 +159,30 @@ export interface ContributionMadeEvent {
 }
 
 /**
- * Milestone approved event data
+ * Refund issued event data
  */
-export interface MilestoneApprovedEvent {
+export interface RefundIssuedEvent {
+  projectId: number;
+  contributor: string;
+  amount: string;
+}
+
+/**
+ * Escrow initialized event data
+ */
+export interface EscrowInitializedEvent {
+  projectId: number;
+  escrowId: string;
+  totalAmount: string;
+}
+
+/**
+ * Funds locked event data
+ */
+export interface FundsLockedEvent {
   projectId: number;
   milestoneId: number;
-  approvalCount: number;
+  amount: string;
 }
 
 /**
@@ -146,9 +195,310 @@ export interface FundsReleasedEvent {
 }
 
 /**
+ * Milestone created event data
+ */
+export interface MilestoneCreatedEvent {
+  projectId: number;
+  milestoneId: number;
+  fundingAmount: string;
+}
+
+/**
+ * Milestone submitted event data
+ */
+export interface MilestoneSubmittedEvent {
+  projectId: number;
+  milestoneId: number;
+  submitter: string;
+}
+
+/**
+ * Milestone approved event data
+ */
+export interface MilestoneApprovedEvent {
+  projectId: number;
+  milestoneId: number;
+  approvalCount: number;
+}
+
+/**
+ * Milestone rejected event data
+ */
+export interface MilestoneRejectedEvent {
+  projectId: number;
+  milestoneId: number;
+  rejectionCount: number;
+}
+
+/**
+ * Milestone completed event data
+ */
+export interface MilestoneCompletedEvent {
+  projectId: number;
+  milestoneId: number;
+}
+
+/**
+ * Validators updated event data
+ */
+export interface ValidatorsUpdatedEvent {
+  projectId: number;
+  validatorCount: number;
+}
+
+/**
+ * Profit distributed event data
+ */
+export interface ProfitDistributedEvent {
+  poolId: string;
+  totalProfit: string;
+  perShare: string;
+}
+
+/**
+ * Dividend claimed event data
+ */
+export interface DividendClaimedEvent {
+  poolId: string;
+  claimer: string;
+  amount: string;
+}
+
+/**
+ * Proposal created event data
+ */
+export interface ProposalCreatedEvent {
+  proposalId: number;
+  proposer: string;
+  title: string;
+}
+
+/**
+ * Vote cast event data
+ */
+export interface VoteCastEvent {
+  proposalId: number;
+  voter: string;
+  support: string;
+}
+
+/**
+ * Proposal executed event data
+ */
+export interface ProposalExecutedEvent {
+  proposalId: number;
+  success: boolean;
+}
+
+/**
+ * User registered event data
+ */
+export interface UserRegisteredEvent {
+  user: string;
+}
+
+/**
+ * Reputation updated event data
+ */
+export interface ReputationUpdatedEvent {
+  user: string;
+  score: number;
+  delta: number;
+}
+
+/**
+ * Badge earned event data
+ */
+export interface BadgeEarnedEvent {
+  user: string;
+  badge: string;
+}
+
+/**
+ * Payment setup event data
+ */
+export interface PaymentSetupEvent {
+  paymentId: string;
+  payer: string;
+  payee: string;
+}
+
+/**
+ * Payment received event data
+ */
+export interface PaymentReceivedEvent {
+  paymentId: string;
+  amount: string;
+}
+
+/**
+ * Payment withdrawn event data
+ */
+export interface PaymentWithdrawnEvent {
+  paymentId: string;
+  recipient: string;
+  amount: string;
+}
+
+/**
+ * Subscription created event data
+ */
+export interface SubscriptionCreatedEvent {
+  subscriptionId: string;
+  subscriber: string;
+  plan: string;
+  amount: string;
+}
+
+/**
+ * Subscription status event data
+ */
+export interface SubscriptionStatusEvent {
+  subscriptionId: string;
+  status: string;
+}
+
+/**
+ * Subscription modified event data
+ */
+export interface SubscriptionModifiedEvent {
+  subscriptionId: string;
+  plan: string;
+  amount: string;
+}
+
+/**
+ * Payment failed event data
+ */
+export interface PaymentFailedEvent {
+  subscriptionId: string;
+  reason: string;
+}
+
+/**
+ * Subscription payment event data
+ */
+export interface SubscriptionPaymentEvent {
+  subscriptionId: string;
+  amount: string;
+}
+
+/**
+ * Bridge initialized event data
+ */
+export interface BridgeInitializedEvent {
+  bridgeId: string;
+  admin: string;
+}
+
+/**
+ * Supported chain added event data
+ */
+export interface SupportedChainAddedEvent {
+  chainId: number;
+  chainName: string;
+}
+
+/**
+ * Supported chain removed event data
+ */
+export interface SupportedChainRemovedEvent {
+  chainId: number;
+}
+
+/**
+ * Asset wrapped event data
+ */
+export interface AssetWrappedEvent {
+  asset: string;
+  wrappedAsset: string;
+  amount: string;
+}
+
+/**
+ * Asset unwrapped event data
+ */
+export interface AssetUnwrappedEvent {
+  asset: string;
+  amount: string;
+}
+
+/**
+ * Bridge deposit event data
+ */
+export interface BridgeDepositEvent {
+  chainId: number;
+  depositor: string;
+  amount: string;
+}
+
+/**
+ * Bridge withdraw event data
+ */
+export interface BridgeWithdrawEvent {
+  chainId: number;
+  recipient: string;
+  amount: string;
+}
+
+/**
+ * Bridge lifecycle event data
+ */
+export interface BridgeLifecycleEvent {
+  bridgeId: string;
+}
+
+/**
+ * Relayer event data
+ */
+export interface RelayerEvent {
+  relayer: string;
+}
+
+/**
+ * Bridge transaction event data
+ */
+export interface BridgeTxEvent {
+  txHash: string;
+  status: string;
+}
+
+/**
+ * Contract lifecycle event data
+ */
+export interface ContractLifecycleEvent {
+  contractId: string;
+}
+
+/**
+ * Upgrade event data
+ */
+export interface UpgradeEvent {
+  contractId: string;
+  newWasmHash: string;
+}
+
+/**
  * Project status changed event data
  */
 export interface ProjectStatusEvent {
   projectId: number;
-  status: 'completed' | 'failed';
+  status: string;
+}
+
+/**
+ * Event that could not be decoded and was quarantined.
+ * Persisted separately so it can be inspected/retried without blocking
+ * the indexer or corrupting domain tables.
+ */
+export interface QuarantinedEvent {
+  eventId: string;
+  network: string;
+  contractId: string;
+  eventType: ContractEventType;
+  ledgerSeq: number;
+  transactionHash: string;
+  rawXdr: string;
+  reason: string;
+  createdAt: Date;
 }

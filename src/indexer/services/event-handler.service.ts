@@ -6,8 +6,10 @@ import {
   ProjectCreatedEvent,
   ContributionMadeEvent,
   MilestoneApprovedEvent,
-  FundsReleasedEvent,
+  MilestoneRejectedEvent,
   ProjectStatusEvent,
+  DividendClaimedEvent,
+  FundsReleasedEvent,
 } from '../types/event-types';
 import { IEventHandler, IEventHandlerRegistry } from '../interfaces/event-handler.interface';
 import { NotificationService } from '../../notification/services/notification.service';
@@ -168,9 +170,11 @@ class MilestoneApprovedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as MilestoneApprovedEvent;
+    const milestoneId = data.milestoneId;
+    const approvalCount = data.approvalCount;
 
     this.logger.log(
-      `Processing MILESTONE_APPROVED: Milestone ${data.milestoneId} for project ${data.projectId}`,
+      `Processing MILESTONE_APPROVED: Milestone ${milestoneId} for project ${data.projectId} (approvals: ${approvalCount})`,
     );
 
     const project = await this.prisma.project.findUnique({
@@ -391,6 +395,48 @@ class ProjectFailedHandler implements IEventHandler {
 }
 
 /**
+ * Handler for DIVIDEND_CLAIMED (profit/claim) events.
+ * Reacts to decoded claim events by crediting the claimer's reputation,
+ * reflecting real on-chain claim activity in the domain layer.
+ */
+class DividendClaimedHandler implements IEventHandler {
+  readonly eventType = ContractEventType.DIVIDEND_CLAIMED;
+  private readonly logger = new Logger(DividendClaimedHandler.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reputationService: ReputationService,
+  ) {}
+
+  validate(event: ParsedContractEvent): boolean {
+    const data = event.data as unknown as DividendClaimedEvent;
+    return !!(data.poolId && data.claimer && data.amount);
+  }
+
+  async handle(event: ParsedContractEvent): Promise<void> {
+    const data = event.data as unknown as DividendClaimedEvent;
+
+    this.logger.log(
+      `Processing DIVIDEND_CLAIMED: ${data.amount} from pool ${data.poolId} claimed by ${data.claimer}`,
+    );
+
+    const user = await this.prisma.user.upsert({
+      where: { walletAddress: data.claimer },
+      update: {},
+      create: {
+        walletAddress: data.claimer,
+        reputationScore: 0,
+      },
+    });
+
+    // Reflect the on-chain claim in the user's reputation/trust score.
+    await this.reputationService.updateTrustScore(user.id);
+
+    this.logger.log(`Updated trust score for claimer ${user.id}`);
+  }
+}
+
+/**
  * Service that manages event handlers and routes events to appropriate handlers
  */
 @Injectable()
@@ -414,6 +460,9 @@ export class EventHandlerService implements IEventHandlerRegistry {
     this.register(new FundsReleasedHandler(this.prisma));
     this.register(new ProjectCompletedHandler(this.prisma));
     this.register(new ProjectFailedHandler(this.prisma));
+    this.register(
+      new DividendClaimedHandler(this.prisma, this.reputationService),
+    );
 
     this.logger.log(`Registered ${this.handlers.size} event handlers`);
   }

@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { IndexerService } from './services/indexer.service';
 import { LedgerTrackerService } from './services/ledger-tracker.service';
 import { EventHandlerService } from './services/event-handler.service';
+import { XdrDecoderService } from './services/xdr-decoder.service';
 import { DatabaseModule } from '../database.module';
 import { SoftDeleteModule } from '../prisma.soft-delete.module';
 import stellarConfig, { indexerConfig } from '../config/stellar.config';
@@ -33,6 +34,8 @@ import stellarConfig, { indexerConfig } from '../config/stellar.config';
     LedgerTrackerService,
     // Event processing
     EventHandlerService,
+    // Soroban XDR event decoder
+    XdrDecoderService,
   ],
   exports: [
     // Export services for potential external use

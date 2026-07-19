@@ -28,7 +28,40 @@ export class ContractEventDto {
   data: Record<string, unknown>;
 
   @IsBoolean()
+  @IsOptional()
+  quarantined?: boolean;
+
+  @IsBoolean()
   inSuccessfulContractCall: boolean;
+}
+
+/**
+ * DTO describing a quarantined (undecodable) event persisted for inspection.
+ */
+export class QuarantinedEventDto {
+  @IsString()
+  eventId: string;
+
+  @IsString()
+  network: string;
+
+  @IsString()
+  contractId: string;
+
+  @IsString()
+  eventType: string;
+
+  @IsNumber()
+  ledgerSeq: number;
+
+  @IsString()
+  transactionHash: string;
+
+  @IsString()
+  rawXdr: string;
+
+  @IsString()
+  reason: string;
 }
 
 /**

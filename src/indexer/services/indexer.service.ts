@@ -5,6 +5,7 @@ import { rpc as SorobanRpc } from 'stellar-sdk';
 import { PrismaService } from '../../prisma.service';
 import { LedgerTrackerService } from './ledger-tracker.service';
 import { EventHandlerService } from './event-handler.service';
+import { XdrDecoderService } from './xdr-decoder.service';
 import { SorobanEvent, ParsedContractEvent, ContractEventType } from '../types/event-types';
 import { LedgerInfo } from '../types/ledger.types';
 
@@ -31,6 +32,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly ledgerTracker: LedgerTrackerService,
     private readonly eventHandler: EventHandlerService,
+    private readonly xdrDecoder: XdrDecoderService,
   ) {
     // Initialize configuration
     this.network = this.configService.get<string>('STELLAR_NETWORK', 'testnet');
@@ -333,6 +335,23 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
+    // Quarantined events: persist for inspection but do not route to handlers
+    // or corrupt domain tables. Still mark as "processed" so we don't loop.
+    if (parsedEvent.quarantined) {
+      this.logger.warn(
+        `Event ${event.id} (${parsedEvent.eventType}) quarantined - raw XDR stored`,
+      );
+      await this.quarantineEvent(parsedEvent, event);
+      await this.ledgerTracker.markEventProcessed(
+        event.id,
+        event.ledger,
+        event.contractId,
+        parsedEvent.eventType,
+        event.txHash,
+      );
+      return false;
+    }
+
     // Process through handler
     const success = await this.eventHandler.processEvent(parsedEvent);
 
@@ -348,6 +367,38 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     }
 
     return success;
+  }
+
+  /**
+   * Persist an undecodable/garbage event to the quarantine table so it can be
+   * audited and optionally replayed later without crashing the indexer.
+   */
+  private async quarantineEvent(
+    parsedEvent: ParsedContractEvent,
+    event: SorobanEvent,
+  ): Promise<void> {
+    const data = parsedEvent.data as Record<string, unknown>;
+    const reason = (data._quarantineReason as string) || 'unknown';
+    const rawXdr = (data.rawXdr as string) || event.value;
+
+    await this.prisma.quarantinedEvent
+      .upsert({
+        where: { eventId: event.id },
+        update: {},
+        create: {
+          eventId: event.id,
+          network: this.network,
+          contractId: event.contractId,
+          eventType: parsedEvent.eventType,
+          ledgerSeq: event.ledger,
+          transactionHash: event.txHash,
+          rawXdr,
+          reason,
+        },
+      })
+      .catch((err) => {
+        this.logger.error(`Failed to quarantine event ${event.id}: ${err.message}`);
+      });
   }
 
   /**
@@ -370,8 +421,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
-      // Parse event data from XDR value
-      const data = this.parseEventData(event.value, eventType);
+      // Decode event data from XDR value
+      const decoded = this.xdrDecoder.decode(event.value, eventType);
+      const quarantined = !!(decoded.data && (decoded.data as any)._quarantined);
 
       return {
         eventId: event.id,
@@ -380,7 +432,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         contractId: event.contractId,
         eventType,
         transactionHash: event.txHash,
-        data,
+        data: decoded.data,
+        quarantined,
         inSuccessfulContractCall: event.inSuccessfulContractCall,
       };
     } catch (error) {
@@ -396,31 +449,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     // Map symbol to event type enum
     const eventType = Object.values(ContractEventType).find((type) => type === symbol);
     return eventType || null;
-  }
-
-  /**
-   * Parse event data from XDR value
-   * This is a simplified parser - in production, you'd use proper XDR decoding
-   */
-  private parseEventData(valueXdr: string, eventType: ContractEventType): Record<string, unknown> {
-    try {
-      // For now, return a placeholder - proper XDR parsing requires
-      // the Soroban SDK's ScVal parsing which depends on the specific event structure
-      // This should be enhanced based on your actual event data structure
-
-      // Attempt basic XDR parsing if possible
-      // Note: Full implementation would use xdr.ScVal.fromXDR() and proper type conversion
-
-      return {
-        rawXdr: valueXdr,
-        eventType,
-        // Add parsed fields based on event type
-        // This is where you'd decode the actual event data
-      };
-    } catch (error) {
-      this.logger.warn(`Failed to parse event data: ${error.message}`);
-      return { rawXdr: valueXdr };
-    }
   }
 
   /**
