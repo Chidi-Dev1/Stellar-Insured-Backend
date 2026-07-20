@@ -3,6 +3,7 @@ import { Process, Processor } from '@nestjs/bull';
 import * as webpush from 'web-push';
 import { Job } from 'bull';
 import { QUEUE_NAMES, PushJobData } from '../constants/queue.constants';
+import { ConfigService } from '@nestjs/config';
 
 export interface WebPushPayload {
   title: string;
@@ -15,13 +16,18 @@ export interface WebPushPayload {
 export class WebPushService {
   private readonly logger = new Logger(WebPushService.name);
 
-  constructor() {
-    // Note: Provide VAPID keys in .env
-    if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  private readonly publicKey: string;
+
+  constructor(private readonly configService: ConfigService) {
+    this.publicKey = this.configService.get<string>('notification.vapid.publicKey') || '';
+    const privateKey = this.configService.get<string>('notification.vapid.privateKey') || '';
+    const subjectEmail = this.configService.get<string>('notification.vapid.subjectEmail') || 'admin@novafund.xyz';
+
+    if (this.publicKey && privateKey) {
       webpush.setVapidDetails(
-        `mailto:${process.env.VAPID_SUBJECT_EMAIL || 'admin@novafund.xyz'}`,
-        process.env.VAPID_PUBLIC_KEY,
-        process.env.VAPID_PRIVATE_KEY,
+        `mailto:${subjectEmail}`,
+        this.publicKey,
+        privateKey,
       );
     } else {
       this.logger.warn(
@@ -39,7 +45,7 @@ export class WebPushService {
   async handlePushJob(job: Job<PushJobData>): Promise<void> {
     const { subscription, payload } = job.data;
 
-    if (!process.env.VAPID_PUBLIC_KEY) {
+    if (!this.publicKey) {
       this.logger.warn('VAPID keys not set. Web push notification skipped.');
       return;
     }

@@ -5,14 +5,22 @@ import { Job } from 'bull';
 import { PrismaService } from '../../prisma.service';
 import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
 
+import { ConfigService } from '@nestjs/config';
+
 @Injectable()
 @Processor(QUEUE_NAMES.EMAIL)
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
+  private readonly apiKey: string;
+  private readonly fromEmail: string;
 
-  constructor(private readonly prisma: PrismaService) {
-    // Note: Provide SENDGRID_API_KEY in .env
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {
+    this.apiKey = this.configService.get<string>('notification.sendgrid.apiKey') || '';
+    this.fromEmail = this.configService.get<string>('notification.sendgrid.fromEmail') || 'noreply@novafund.xyz';
+    sgMail.setApiKey(this.apiKey);
   }
 
   private isValidEmail(email: string): boolean {
@@ -38,7 +46,7 @@ export class EmailService {
       throw new BadRequestException(`Invalid email address: ${to}`);
     }
 
-    if (!process.env.SENDGRID_API_KEY) {
+    if (!this.apiKey) {
       const reason = 'SENDGRID_API_KEY not set. Email not sent.';
       this.logger.warn(reason);
       await this.markFailed(outboxId, reason);
@@ -48,7 +56,7 @@ export class EmailService {
     try {
       const msg = {
         to,
-        from: process.env.SENDGRID_FROM_EMAIL || 'noreply@novafund.xyz',
+        from: this.fromEmail,
         subject,
         html,
       };

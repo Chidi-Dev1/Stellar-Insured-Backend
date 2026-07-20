@@ -39,7 +39,7 @@ export class AppController {
   @ApiOkResponse({ description: 'Returns health check status for database and Stellar RPC' })
   getHealth() {
     const stellarRpcUrl = this.configService.get<string>(
-      'STELLAR_HORIZON_URL',
+      'stellar.horizonUrl',
       'https://horizon-testnet.stellar.org',
     );
 

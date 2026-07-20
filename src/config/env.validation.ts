@@ -67,21 +67,41 @@ class EnvironmentVariables {
   @IsOptional()
   REDIS_URL: string = 'redis://localhost:6379';
 
-  @IsString()
-  @IsOptional()
-  REDIS_HOST: string = 'localhost';
-
-  @IsNumber()
-  @IsOptional()
-  REDIS_PORT: number = 6379;
-
-  @IsString()
-  @IsOptional()
-  REDIS_PASSWORD: string = '';
-
   @IsNumber()
   @IsOptional()
   REDIS_DB: number = 0;
+
+  // AWS / S3 Configuration
+  @IsString()
+  AWS_REGION: string;
+
+  @IsString()
+  AWS_ACCESS_KEY_ID: string;
+
+  @IsString()
+  AWS_SECRET_ACCESS_KEY: string;
+
+  @IsString()
+  AWS_S3_BUCKET: string;
+
+  // SendGrid Configuration
+  @IsString()
+  SENDGRID_API_KEY: string;
+
+  @IsString()
+  @IsOptional()
+  SENDGRID_FROM_EMAIL: string = 'noreply@novafund.xyz';
+
+  // Web Push (VAPID) Configuration
+  @IsString()
+  VAPID_PUBLIC_KEY: string;
+
+  @IsString()
+  VAPID_PRIVATE_KEY: string;
+
+  @IsString()
+  @IsOptional()
+  VAPID_SUBJECT_EMAIL: string = 'admin@novafund.xyz';
 
   // Bull / background job queue (uses Redis above)
   @IsNumber()
@@ -108,6 +128,9 @@ class EnvironmentVariables {
   })
   JWT_SECRET: string;
 
+  @IsString()
+  ENCRYPTION_KEYS: string;
+
   /**
    * JWT_REFRESH_SECRET shares the same strength requirements as JWT_SECRET.
    */
@@ -124,6 +147,9 @@ class EnvironmentVariables {
 
   @IsString()
   STELLAR_NETWORK: string;
+
+  @IsUrl({ require_tld: false })
+  STELLAR_HORIZON_URL: string;
 
   @IsString()
   STELLAR_RPC_URL: string;

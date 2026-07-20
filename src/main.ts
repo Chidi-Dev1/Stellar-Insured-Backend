@@ -11,10 +11,18 @@ import * as winston from 'winston';
 
 async function bootstrap() {
   const bootstrapLogger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule, {
-    logger: logger,
-  });
-  const configService = app.get(ConfigService);
+  let app;
+  let configService: ConfigService;
+  try {
+    app = await NestFactory.create(AppModule, {
+      logger: logger,
+    });
+    configService = app.get(ConfigService);
+  } catch (error) {
+    bootstrapLogger.error('Failed to start application due to configuration/validation errors:');
+    bootstrapLogger.error(error.message || error);
+    process.exit(1);
+  }
 
   // Application bootstrap setup
   // - create the Nest app with a shared Winston logger
@@ -85,7 +93,7 @@ async function bootstrap() {
   );
 
   // API prefix - version is now handled by NestJS versioning
-  const apiPrefix = configService.get<string>('API_PREFIX', 'api');
+  const apiPrefix = configService.get<string>('app.apiPrefix', 'api');
   app.setGlobalPrefix(apiPrefix);
 
   // Enable URI-based API versioning (e.g. /api/v1/users, /api/v2/users)
@@ -141,7 +149,7 @@ async function bootstrap() {
     next();
   });
 
-  const port = configService.get<number>('PORT', 3000);
+  const port = configService.get<number>('app.port', 3000);
   await app.listen(port);
 
   const server = app.getHttpServer() as any;
