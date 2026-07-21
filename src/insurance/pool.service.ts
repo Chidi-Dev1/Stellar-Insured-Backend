@@ -10,8 +10,8 @@ export class PoolService {
     private readonly auditService: AuditService,
   ) {}
 
-  async addCapital(poolId: string, amount: number) {
-    if (amount <= 0) {
+  async addCapital(poolId: string, amount: Prisma.Decimal) {
+    if (amount.lte(new Prisma.Decimal(0))) {
       throw new BadRequestException('Amount must be positive');
     }
     const pool = await this.prisma.insurancePool.findUnique({ where: { id: poolId } });
@@ -27,8 +27,8 @@ export class PoolService {
     return updatedPool;
   }
 
-  async lockCapital(poolId: string, amount: number, tx?: Prisma.TransactionClient) {
-    if (amount <= 0) {
+  async lockCapital(poolId: string, amount: Prisma.Decimal, tx?: Prisma.TransactionClient) {
+    if (amount.lte(new Prisma.Decimal(0))) {
       throw new BadRequestException('Amount must be positive');
     }
     const client = tx ?? this.prisma;

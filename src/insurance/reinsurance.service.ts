@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from './services/audit.service';
 
@@ -9,7 +10,7 @@ export class ReinsuranceService {
     private readonly auditService: AuditService,
   ) {}
 
-  async createContract(poolId: string, coverageLimit: number, premiumRate: number) {
+  async createContract(poolId: string, coverageLimit: Prisma.Decimal, premiumRate: Prisma.Decimal) {
     const savedContract = await this.prisma.reinsuranceContract.create({
       data: { poolId, coverageLimit, premiumRate },
     });

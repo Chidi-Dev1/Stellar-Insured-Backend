@@ -1,5 +1,6 @@
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
+import { Prisma } from '@prisma/client';
 
 export interface SuccessResponse<T = unknown> {
   success: true;
@@ -35,10 +36,34 @@ export class ResponseTransformInterceptor implements NestInterceptor {
       'meta' in body
     ) {
       const { data, meta } = body as any;
-      return { success: true, data: this.stripSoftDeleteMetadata(data), meta };
+      return { success: true, data: this.serializeDecimals(this.stripSoftDeleteMetadata(data)), meta };
     }
 
-    return { success: true, data: this.stripSoftDeleteMetadata(body) };
+    return { success: true, data: this.serializeDecimals(this.stripSoftDeleteMetadata(body)) };
+  }
+
+  private serializeDecimals(value: unknown): unknown {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    if (value instanceof Prisma.Decimal) {
+      return value.toString();
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(item => this.serializeDecimals(item));
+    }
+
+    if (typeof value === 'object') {
+      const result: Record<string, unknown> = {};
+      for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+        result[key] = this.serializeDecimals(entry);
+      }
+      return result;
+    }
+
+    return value;
   }
 
   /**

@@ -1,5 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsEnum, IsNumber, IsPositive } from 'class-validator';
+import { IsString, IsEnum } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { Prisma } from '@prisma/client';
 import { RiskType } from '../enums/risk-type.enum';
 
 export class PurchasePolicyDto {
@@ -16,7 +18,12 @@ export class PurchasePolicyDto {
   riskType: RiskType;
 
   @ApiProperty({ description: 'Requested coverage amount', minimum: 0.01 })
-  @IsNumber()
-  @IsPositive()
-  coverageAmount: number;
+  @Transform(({ value }) => {
+    const decimal = new Prisma.Decimal(value);
+    if (decimal.lte(new Prisma.Decimal(0))) {
+      throw new Error('Coverage amount must be positive');
+    }
+    return decimal;
+  })
+  coverageAmount: Prisma.Decimal;
 }
