@@ -8,6 +8,7 @@ import { ClaimStatus } from './enums/claim-status.enum';
 import { PolicyStatus } from './enums/policy-status.enum';
 import { AuditAction } from './enums/audit-action.enum';
 import { PrismaService } from '../prisma.service';
+import { PoolService } from './pool.service';
 import { AuditService } from './services/audit.service';
 import { Claim, InsurancePolicy, Prisma } from '@prisma/client';
 
@@ -19,6 +20,7 @@ export class ClaimService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly pools: PoolService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -131,6 +133,10 @@ export class ClaimService {
     })) as ClaimWithPolicy;
 
     if (status === ClaimStatus.REJECTED) {
+      if (existing.policy) {
+        const claimDecimal = new Prisma.Decimal(existing.claimAmount);
+        await this.pools.unlockCapital(existing.policy.poolId, claimDecimal);
+      }
       await this.auditService.logReject('Claim', claimId, beforeState, updated, reason);
     } else if (status === ClaimStatus.APPROVED) {
       await this.auditService.logApprove(
@@ -253,6 +259,10 @@ export class ClaimService {
       data: { status: ClaimStatus.PAID },
       include: { policy: true },
     })) as ClaimWithPolicy;
+    if (claim.policy) {
+      const claimDecimal = new Prisma.Decimal(claim.claimAmount);
+      await this.pools.unlockCapital(claim.policy.poolId, claimDecimal);
+    }
     await this.auditService.logPayout(
       'Claim',
       claimId,

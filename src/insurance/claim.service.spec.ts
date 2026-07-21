@@ -3,8 +3,9 @@ import { ClaimStatus } from './enums/claim-status.enum';
 import { PolicyStatus } from './enums/policy-status.enum';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { EncryptionService } from '../encryption/encryption.service';
+import { PoolService } from './pool.service';
 import { AuditService } from './services/audit.service';
+import { Prisma } from '@prisma/client';
 
 interface MockPrismaService {
   claim: {
@@ -15,9 +16,8 @@ interface MockPrismaService {
   };
 }
 
-interface MockEncryptionService {
-  encrypt: jest.Mock;
-  decrypt: jest.Mock;
+interface MockPoolService {
+  unlockCapital: jest.Mock;
 }
 
 interface MockAuditService {
@@ -31,10 +31,8 @@ interface MockAuditService {
 
 describe('ClaimService', () => {
   let service: ClaimService;
-  let prisma: any;
-  let auditService: any;
   let prisma: MockPrismaService;
-  let encryption: MockEncryptionService;
+  let pools: MockPoolService;
   let auditService: MockAuditService;
 
   const mockPolicy = {
@@ -42,8 +40,8 @@ describe('ClaimService', () => {
     userId: 'user-1',
     poolId: 'pool-1',
     status: PolicyStatus.ACTIVE,
-    coverageAmount: 100000,
-    premium: 5000,
+    coverageAmount: new Prisma.Decimal(100000),
+    premium: new Prisma.Decimal(5000),
     startDate: new Date('2025-01-01'),
     endDate: new Date('2027-01-01'),
   };
@@ -51,7 +49,7 @@ describe('ClaimService', () => {
   const mockClaim = {
     id: 'claim-1',
     policyId: 'policy-1',
-    claimAmount: 50000,
+    claimAmount: new Prisma.Decimal(50000),
     status: ClaimStatus.PENDING,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -68,6 +66,10 @@ describe('ClaimService', () => {
       },
     };
 
+    pools = {
+      unlockCapital: jest.fn(),
+    };
+
     auditService = {
       log: jest.fn(),
       logCreate: jest.fn(),
@@ -77,10 +79,9 @@ describe('ClaimService', () => {
       logUpdate: jest.fn(),
     };
 
-    service = new ClaimService(prisma, auditService);
     service = new ClaimService(
       prisma as unknown as PrismaService,
-      encryption as unknown as EncryptionService,
+      pools as unknown as PoolService,
       auditService as unknown as AuditService,
     );
     jest.clearAllMocks();
@@ -88,8 +89,6 @@ describe('ClaimService', () => {
 
   describe('createClaim', () => {
     it('should create a claim with the plain, unencrypted claim amount', async () => {
-      const createdClaim = { id: 'claim-new', policyId: 'policy-1', claimAmount: 50000, status: ClaimStatus.PENDING };
-    it('should create a claim with encrypted claim amount', async () => {
       const createdClaim = {
         id: 'claim-new',
         policyId: 'policy-1',
@@ -98,15 +97,12 @@ describe('ClaimService', () => {
       };
       prisma.claim.create.mockResolvedValue(createdClaim);
 
-      const result = await service.createClaim('policy-1', 50000);
+      const result = await service.createClaim('policy-1', new Prisma.Decimal(50000));
 
-      // Regression for issue #399: claimAmount is a plain numeric(18,2) column.
-      // It must be written as-is, not run through EncryptionService + parseFloat
-      // (which previously corrupted it into NaN/garbage).
       expect(prisma.claim.create).toHaveBeenCalledWith({
         data: {
           policyId: 'policy-1',
-          claimAmount: 50000,
+          claimAmount: new Prisma.Decimal(50000),
           status: ClaimStatus.PENDING,
         },
       });
@@ -116,11 +112,6 @@ describe('ClaimService', () => {
 
     it('does not depend on EncryptionService for the claim amount', () => {
       expect(service['encryption']).toBeUndefined();
-      expect(auditService.logCreate).toHaveBeenCalledWith(
-        'Claim',
-        'claim-new',
-        createdClaim,
-      );
     });
   });
 
@@ -152,6 +143,7 @@ describe('ClaimService', () => {
         status: ClaimStatus.REJECTED,
         policy: inactivePolicy,
       });
+      (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(
         BadRequestException,
@@ -159,12 +151,13 @@ describe('ClaimService', () => {
     });
 
     it('should reject claim if claim amount exceeds coverage', async () => {
-      const claim = { ...mockClaim, claimAmount: 200000 };
+      const claim = { ...mockClaim, claimAmount: new Prisma.Decimal(200000) };
       prisma.claim.findUnique.mockResolvedValue(claim);
       prisma.claim.update.mockResolvedValue({
         ...claim,
         status: ClaimStatus.REJECTED,
       });
+      (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(
         BadRequestException,
@@ -179,7 +172,6 @@ describe('ClaimService', () => {
       };
       const claim = { ...mockClaim, policy: expiredPolicy };
 
-      // First call for assessClaim, second for updateStatus (rejection), third for verifyOracle
       prisma.claim.findUnique
         .mockResolvedValueOnce(claim) // assessClaim main fetch
         .mockResolvedValueOnce(claim) // updateStatus fetch (before rejection)
@@ -190,6 +182,7 @@ describe('ClaimService', () => {
         ...claim,
         status: ClaimStatus.REJECTED,
       });
+      (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(
         BadRequestException,
@@ -197,11 +190,11 @@ describe('ClaimService', () => {
     });
 
     it('should approve claim when all checks pass', async () => {
-      const claim = { ...mockClaim, claimAmount: 50000 };
+      const claim = { ...mockClaim, claimAmount: new Prisma.Decimal(50000) };
       const approvedClaim = {
         ...claim,
         status: ClaimStatus.APPROVED,
-        payoutAmount: 50000,
+        payoutAmount: new Prisma.Decimal(50000),
       };
 
       prisma.claim.findUnique
@@ -218,11 +211,11 @@ describe('ClaimService', () => {
     });
 
     it('should detect fraud and log but still approve if only 1 indicator', async () => {
-      const claim = { ...mockClaim, claimAmount: 50000 };
+      const claim = { ...mockClaim, claimAmount: new Prisma.Decimal(50000) };
       const approvedClaim = {
         ...claim,
         status: ClaimStatus.APPROVED,
-        payoutAmount: 50000,
+        payoutAmount: new Prisma.Decimal(50000),
       };
 
       prisma.claim.findUnique
@@ -243,13 +236,13 @@ describe('ClaimService', () => {
     it('should detect fraud with 2+ indicators and log fraud event', async () => {
       const claim = {
         ...mockClaim,
-        claimAmount: 50000,
+        claimAmount: new Prisma.Decimal(50000),
         createdAt: new Date('2026-04-27T03:00:00Z'), // 3 AM = unusual timing
       };
       const approvedClaim = {
         ...claim,
         status: ClaimStatus.APPROVED,
-        payoutAmount: 50000,
+        payoutAmount: new Prisma.Decimal(50000),
       };
 
       prisma.claim.findUnique
@@ -290,10 +283,12 @@ describe('ClaimService', () => {
       const paidClaim = { ...claim, status: ClaimStatus.PAID };
       prisma.claim.findUnique.mockResolvedValue(claim);
       prisma.claim.update.mockResolvedValue(paidClaim);
+      (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       const result = await service.payClaim('claim-1');
 
       expect(result.status).toBe(ClaimStatus.PAID);
+      expect(pools.unlockCapital).toHaveBeenCalledWith('pool-1', new Prisma.Decimal(50000));
     });
 
     it('should call auditService.logPayout after paying', async () => {
@@ -303,6 +298,7 @@ describe('ClaimService', () => {
         ...claim,
         status: ClaimStatus.PAID,
       });
+      (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await service.payClaim('claim-1');
 
