@@ -52,14 +52,13 @@ export class NotificationService {
       return;
     }
 
-    // Default settings if none exist
-    const settings = contactData.notificationSettings || {
-      emailEnabled: true,
-      pushEnabled: false,
-      notifyContributions: true,
-      notifyMilestones: true,
-      notifyDeadlines: true,
-    };
+    // Persist default settings if none exist yet (legacy users)
+    let settings = contactData.notificationSettings;
+    if (!settings) {
+      settings = await this.prisma.notificationSetting.create({
+        data: { userId },
+      });
+    }
 
     // Check specific preferences
     if (type === 'CONTRIBUTION' && !settings.notifyContributions) return;

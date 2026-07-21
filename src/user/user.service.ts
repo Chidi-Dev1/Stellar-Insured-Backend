@@ -132,7 +132,11 @@ export class UserService {
       data: {
         walletAddress: sanitizedAddress, // Keep as-is for unique constraint and public lookup
         email: encryptedEmail,
+        notificationSettings: {
+          create: {},
+        },
       },
+      include: { notificationSettings: true },
     });
   }
 
