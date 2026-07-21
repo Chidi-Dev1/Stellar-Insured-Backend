@@ -51,7 +51,7 @@ export class ClaimService {
     }
 
     // 2. Check coverage limits
-    if (Number(claim.claimAmount) > Number(policy.coverageAmount)) {
+    if ((claim.claimAmount as Prisma.Decimal).gt(policy.coverageAmount as Prisma.Decimal)) {
       await this.updateStatus(
         claimId,
         ClaimStatus.REJECTED,
@@ -110,7 +110,7 @@ export class ClaimService {
     status: ClaimStatus,
     reason: string,
     _user: string = 'system',
-    additionalData: { payoutAmount?: Prisma.Decimal | number } = {},
+    additionalData: { payoutAmount?: Prisma.Decimal } = {},
   ): Promise<ClaimWithPolicy> {
     const existing = (await this.prisma.claim.findUnique({
       where: { id: claimId },
@@ -214,10 +214,10 @@ export class ClaimService {
         return false;
       }
 
-      const claimAmount = Number(claim.claimAmount);
-      const coverageAmount = Number(policy.coverageAmount);
+      const claimDecimal = claim.claimAmount as Prisma.Decimal;
+      const coverageDecimal = policy.coverageAmount as Prisma.Decimal;
 
-      if (claimAmount <= 0 || claimAmount > coverageAmount) {
+      if (claimDecimal.lte(new Prisma.Decimal(0)) || claimDecimal.gt(coverageDecimal)) {
         return false;
       }
 
@@ -262,7 +262,7 @@ export class ClaimService {
     return updatedClaim;
   }
 
-  async createClaim(policyId: string, claimAmount: number): Promise<Claim> {
+  async createClaim(policyId: string, claimAmount: Prisma.Decimal): Promise<Claim> {
     // claimAmount is a plain numeric(18,2) column (see prisma/schema.prisma).
     // It is NOT encrypted at rest: assessClaim()/runFraudDetection() compare
     // it directly against policy.coverageAmount and run DB-level equality

@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PricingService } from './pricing.service';
 import { PoolService } from './pool.service';
 import { RiskType } from './enums/risk-type.enum';
@@ -21,12 +22,12 @@ export class InsuranceService {
     userId: string,
     poolId: string,
     riskType: RiskType,
-    coverageAmount: number,
+    coverageAmount: Prisma.Decimal,
   ): Promise<InsurancePolicy> {
     if (!userId || !poolId) {
       throw new BadRequestException('userId and poolId are required');
     }
-    if (coverageAmount <= 0) {
+    if (coverageAmount.lte(new Prisma.Decimal(0))) {
       throw new BadRequestException('Coverage amount must be positive');
     }
 
