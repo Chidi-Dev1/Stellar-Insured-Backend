@@ -58,42 +58,46 @@ export class InsuranceService {
   }
 
   async cancelPolicy(policyId: string): Promise<InsurancePolicy> {
-    const policy = await this.prisma.insurancePolicy.findUnique({
-      where: { id: policyId },
+    return await this.prisma.$transaction(async tx => {
+      const policy = await tx.insurancePolicy.findUnique({
+        where: { id: policyId },
+      });
+      if (!policy) {
+        throw new BadRequestException(`Policy ${policyId} not found`);
+      }
+      if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
+        throw new BadRequestException('Policy is already inactive');
+      }
+      const beforeState = { ...policy };
+      const updated = await tx.insurancePolicy.update({
+        where: { id: policyId },
+        data: { status: PolicyStatus.CANCELLED },
+      });
+      await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal, tx);
+      await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy cancelled', tx);
+      return updated;
     });
-    if (!policy) {
-      throw new BadRequestException(`Policy ${policyId} not found`);
-    }
-    if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
-      throw new BadRequestException('Policy is already inactive');
-    }
-    const beforeState = { ...policy };
-    const updated = await this.prisma.insurancePolicy.update({
-      where: { id: policyId },
-      data: { status: PolicyStatus.CANCELLED },
-    });
-    await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal);
-    await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy cancelled');
-    return updated;
   }
 
   async expirePolicy(policyId: string): Promise<InsurancePolicy> {
-    const policy = await this.prisma.insurancePolicy.findUnique({
-      where: { id: policyId },
+    return await this.prisma.$transaction(async tx => {
+      const policy = await tx.insurancePolicy.findUnique({
+        where: { id: policyId },
+      });
+      if (!policy) {
+        throw new BadRequestException(`Policy ${policyId} not found`);
+      }
+      if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
+        throw new BadRequestException('Policy is already inactive');
+      }
+      const beforeState = { ...policy };
+      const updated = await tx.insurancePolicy.update({
+        where: { id: policyId },
+        data: { status: PolicyStatus.EXPIRED },
+      });
+      await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal, tx);
+      await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy expired', tx);
+      return updated;
     });
-    if (!policy) {
-      throw new BadRequestException(`Policy ${policyId} not found`);
-    }
-    if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
-      throw new BadRequestException('Policy is already inactive');
-    }
-    const beforeState = { ...policy };
-    const updated = await this.prisma.insurancePolicy.update({
-      where: { id: policyId },
-      data: { status: PolicyStatus.EXPIRED },
-    });
-    await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal);
-    await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy expired');
-    return updated;
   }
 }

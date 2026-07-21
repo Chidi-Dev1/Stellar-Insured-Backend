@@ -40,8 +40,9 @@ export class AuditService {
     afterState?: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    await this.prisma.auditLog.create({
+    await (tx ?? this.prisma).auditLog.create({
       data: {
         userId: this.getUserId(),
         action,
@@ -64,6 +65,7 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.CREATE,
@@ -73,6 +75,7 @@ export class AuditService {
       afterState,
       transactionHash,
       reason,
+      tx,
     );
   }
 
@@ -83,6 +86,7 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.UPDATE,
@@ -92,6 +96,7 @@ export class AuditService {
       afterState,
       transactionHash,
       reason,
+      tx,
     );
   }
 
@@ -101,6 +106,7 @@ export class AuditService {
     beforeState: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.DELETE,
@@ -110,6 +116,7 @@ export class AuditService {
       null,
       transactionHash,
       reason,
+      tx,
     );
   }
 
@@ -120,6 +127,7 @@ export class AuditService {
     afterState?: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.APPROVE,
@@ -129,6 +137,7 @@ export class AuditService {
       afterState,
       transactionHash,
       reason,
+      tx,
     );
   }
 
@@ -138,6 +147,7 @@ export class AuditService {
     beforeState?: unknown,
     afterState?: unknown,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.REJECT,
@@ -147,6 +157,7 @@ export class AuditService {
       afterState,
       undefined,
       reason,
+      tx,
     );
   }
 
@@ -157,6 +168,7 @@ export class AuditService {
     afterState?: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.PAYOUT,
@@ -166,6 +178,7 @@ export class AuditService {
       afterState,
       transactionHash,
       reason,
+      tx,
     );
   }
 
@@ -175,6 +188,7 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.PURCHASE,
@@ -184,6 +198,7 @@ export class AuditService {
       afterState,
       transactionHash,
       reason,
+      tx,
     );
   }
 
@@ -194,6 +209,7 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.UNLOCK_CAPITAL,
@@ -203,6 +219,7 @@ export class AuditService {
       afterState,
       transactionHash,
       reason,
+      tx,
     );
   }
 
@@ -213,6 +230,7 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.log(
       AuditAction.ADD_CAPITAL,
@@ -222,6 +240,7 @@ export class AuditService {
       afterState,
       transactionHash,
       reason,
+      tx,
     );
   }
 

@@ -102,6 +102,8 @@ describe('PoolService', () => {
         'pool-1',
         expect.any(Object),
         expect.any(Object),
+        undefined,
+        undefined,
       );
     });
   });
@@ -252,6 +254,8 @@ describe('PoolService', () => {
         'pool-1',
         expect.any(Object),
         expect.any(Object),
+        undefined,
+        undefined,
       );
     });
   });

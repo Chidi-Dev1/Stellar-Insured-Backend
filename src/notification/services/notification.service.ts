@@ -26,22 +26,14 @@ export class NotificationService {
     private readonly pushQueue: Queue<PushJobData>,
   ) {}
 
-  /**
-   * Persists a notification and dispatches it through background queues.
-   *
-   * No synchronous SendGrid / web-push call happens here, so a slow or failing
-   * provider can never block or 500 the calling request. The actual send is
-   * performed off-request by the queue processors, with the EmailOutbox row
-   * providing a durable PENDING → SENT|FAILED record.
-   */
   async notify(
     userId: string,
     type: NotificationType,
     title: string,
     message: string,
     data?: Prisma.InputJsonValue,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    // Validate notification type at runtime
     validateEnum(NotificationType, type, 'NotificationType');
 
     let contactData;
@@ -52,21 +44,20 @@ export class NotificationService {
       return;
     }
 
-    // Persist default settings if none exist yet (legacy users)
     let settings = contactData.notificationSettings;
     if (!settings) {
-      settings = await this.prisma.notificationSetting.create({
+      const client = tx ?? this.prisma;
+      settings = await client.notificationSetting.create({
         data: { userId },
       });
     }
 
-    // Check specific preferences
     if (type === 'CONTRIBUTION' && !settings.notifyContributions) return;
     if (type === 'MILESTONE' && !settings.notifyMilestones) return;
     if (type === 'DEADLINE' && !settings.notifyDeadlines) return;
 
-    // Save notification to history
-    await this.prisma.notification.create({
+    const client = tx ?? this.prisma;
+    await client.notification.create({
       data: {
         userId,
         type,
@@ -76,12 +67,10 @@ export class NotificationService {
       },
     });
 
-    // Dispatch via Email: write a durable outbox row and enqueue the send.
     if (settings.emailEnabled && contactData.email) {
-      await this.enqueueEmail(contactData.email, title, `<p>${message}</p>`);
+      await this.enqueueEmail(contactData.email, title, `<p>${message}</p>`, tx);
     }
 
-    // Dispatch via Web Push: enqueue the send (best-effort, no outbox row).
     const pushSubscription = this.getPushSubscription(
       contactData.pushSubscription,
     );
@@ -93,16 +82,14 @@ export class NotificationService {
     }
   }
 
-  /**
-   * Writes an EmailOutbox row (PENDING) and enqueues the email job. The job
-   * payload carries the outbox id so the processor can mark it SENT|FAILED.
-   */
   async enqueueEmail(
     to: string,
     subject: string,
     html: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const outbox = await this.prisma.emailOutbox.create({
+    const client = tx ?? this.prisma;
+    const outbox = await client.emailOutbox.create({
       data: { to, subject, html, status: 'PENDING' },
     });
 
