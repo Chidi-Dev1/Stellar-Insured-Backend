@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PricingService } from './pricing.service';
 import { PoolService } from './pool.service';
 import { RiskType } from './enums/risk-type.enum';
+import { PolicyStatus } from './enums/policy-status.enum';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from './services/audit.service';
 import { InsurancePolicy } from '@prisma/client';
@@ -37,16 +38,6 @@ export class InsuranceService {
 
         await this.pools.lockCapital(poolId, coverageAmount, tx);
 
-        // coverageAmount/premium are stored as plain numeric(18,2) columns (see
-        // prisma/schema.prisma). They are NOT encrypted at rest: claim assessment,
-        // fraud detection, pool capital locking, and reporting all perform direct
-        // arithmetic/equality comparisons and DB-level aggregation on these values
-        // (see claim.service.ts, pool.service.ts). Encrypting them here previously
-        // produced ciphertext that was force-cast to a number via parseFloat(),
-        // silently corrupting every policy's coverage/premium into NaN/garbage.
-        // Sensitive-field encryption (e.g. user email) is applied at the
-        // service layer for those specific PII fields only — see
-        // EncryptionService and user.service.ts.
         return tx.insurancePolicy.create({
           data: {
             userId,
@@ -64,5 +55,45 @@ export class InsuranceService {
       );
       throw error;
     }
+  }
+
+  async cancelPolicy(policyId: string): Promise<InsurancePolicy> {
+    const policy = await this.prisma.insurancePolicy.findUnique({
+      where: { id: policyId },
+    });
+    if (!policy) {
+      throw new BadRequestException(`Policy ${policyId} not found`);
+    }
+    if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
+      throw new BadRequestException('Policy is already inactive');
+    }
+    const beforeState = { ...policy };
+    const updated = await this.prisma.insurancePolicy.update({
+      where: { id: policyId },
+      data: { status: PolicyStatus.CANCELLED },
+    });
+    await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal);
+    await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy cancelled');
+    return updated;
+  }
+
+  async expirePolicy(policyId: string): Promise<InsurancePolicy> {
+    const policy = await this.prisma.insurancePolicy.findUnique({
+      where: { id: policyId },
+    });
+    if (!policy) {
+      throw new BadRequestException(`Policy ${policyId} not found`);
+    }
+    if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
+      throw new BadRequestException('Policy is already inactive');
+    }
+    const beforeState = { ...policy };
+    const updated = await this.prisma.insurancePolicy.update({
+      where: { id: policyId },
+      data: { status: PolicyStatus.EXPIRED },
+    });
+    await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal);
+    await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy expired');
+    return updated;
   }
 }

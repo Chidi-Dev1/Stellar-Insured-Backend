@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from './services/audit.service';
@@ -16,5 +16,26 @@ export class ReinsuranceService {
     });
     await this.auditService.logCreate('ReinsuranceContract', savedContract.id, savedContract);
     return savedContract;
+  }
+
+  async releaseContract(contractId: string) {
+    const contract = await this.prisma.reinsuranceContract.findUnique({
+      where: { id: contractId },
+    });
+    if (!contract) {
+      throw new BadRequestException(`Reinsurance contract ${contractId} not found`);
+    }
+    const beforeState = { ...contract };
+    const released = await this.prisma.reinsuranceContract.delete({
+      where: { id: contractId },
+    });
+    await this.auditService.logDelete(
+      'ReinsuranceContract',
+      contractId,
+      beforeState,
+      undefined,
+      'Reinsurance contract released',
+    );
+    return released;
   }
 }

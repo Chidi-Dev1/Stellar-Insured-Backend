@@ -187,6 +187,25 @@ export class AuditService {
     );
   }
 
+  async logUnlockCapital(
+    entityType: string,
+    entityId: string,
+    beforeState: unknown,
+    afterState: unknown,
+    transactionHash?: string,
+    reason?: string,
+  ): Promise<void> {
+    await this.log(
+      AuditAction.UNLOCK_CAPITAL,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+    );
+  }
+
   async logAddCapital(
     entityType: string,
     entityId: string,
