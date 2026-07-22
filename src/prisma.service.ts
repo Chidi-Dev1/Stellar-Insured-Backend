@@ -24,4 +24,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$disconnect();
     this.logger.log('Disconnected from database');
   }
+    /**
+   * Lightweight liveness check used by the Prisma health indicator.
+   * Throws if the connection is down; callers should catch and translate.
+   */
+    async ping(): Promise<void> {
+      await this.$queryRaw`SELECT 1`;
+    }
 }
