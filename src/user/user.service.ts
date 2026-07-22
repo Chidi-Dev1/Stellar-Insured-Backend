@@ -13,6 +13,7 @@ import {
   isValidCuid,
   isValidWalletAddress,
 } from '../common/utils/sanitization.util';
+import { REPUTATION_DELTAS } from '../reputation/reputation.constants';
 import { Prisma, User } from '@prisma/client';
 
 export interface PaginatedUsers {
@@ -133,6 +134,7 @@ export class UserService {
         data: {
           walletAddress: sanitizedAddress,
           email: encryptedEmail,
+          reputationScore: REPUTATION_DELTAS.INITIAL_REPUTATION,
           notificationSettings: {
             create: {},
           },

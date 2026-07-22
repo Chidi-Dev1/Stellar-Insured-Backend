@@ -50,3 +50,24 @@ export const MAX_SCORE = 100;
  * alongside a `lowConfidence` flag.
  */
 export const MIN_ACTIVITY_THRESHOLD = 5;
+
+/**
+ * Fixed point deltas applied to User.reputationScore for discrete events.
+ * Keeping these in one place makes the scoring policy easy to audit and tune.
+ */
+export const REPUTATION_DELTAS = {
+  /** Claim approved and ready for payout. */
+  CLAIM_APPROVED: 10,
+  /** Claim rejected (policy violation, over-coverage, oracle failure, etc.). */
+  CLAIM_REJECTED: -5,
+  /** Automated fraud indicators triggered on a claim. */
+  FRAUD_DETECTED: -20,
+  /** A blockchain contribution was successfully recorded. */
+  CONTRIBUTION_SUCCESS: 5,
+  /** A project milestone was approved on-chain. */
+  MILESTONE_APPROVED: 15,
+  /** A project milestone was rejected on-chain. */
+  MILESTONE_REJECTED: -10,
+  /** Initial reputation granted when a user account is first created. */
+  INITIAL_REPUTATION: 50,
+} as const;

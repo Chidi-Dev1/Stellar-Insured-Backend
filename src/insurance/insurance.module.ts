@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database.module';
+import { ReputationModule } from '../reputation/reputation.module';
 
 import { InsuranceController } from './insurance.controller';
 
@@ -12,7 +13,7 @@ import { AuditService } from './services/audit.service';
 import { IdempotencyInterceptor } from '../interceptors/idempotency.interceptor';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, ReputationModule],
   controllers: [InsuranceController],
   providers: [
     InsuranceService,
