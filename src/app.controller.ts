@@ -2,14 +2,10 @@ import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiOkResponse } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { AppService } from './app.service';
-import {
-  HealthCheck,
-  HealthCheckService,
-  HttpHealthIndicator,
-  TypeOrmHealthIndicator,
-} from '@nestjs/terminus';
+import { HealthCheck, HealthCheckService, HttpHealthIndicator } from '@nestjs/terminus';
 import { ConfigService } from '@nestjs/config';
 import { Public } from './auth/decorators/public.decorator';
+import { PrismaHealthIndicator } from './common/health/prisma.health';
 
 @ApiTags('Application')
 @SkipThrottle({ auth: true })
@@ -19,7 +15,7 @@ export class AppController {
     private readonly appService: AppService,
     private readonly health: HealthCheckService,
     private readonly http: HttpHealthIndicator,
-    private readonly db: TypeOrmHealthIndicator,
+    private readonly db: PrismaHealthIndicator,
     private readonly configService: ConfigService,
   ) {}
 
@@ -42,7 +38,6 @@ export class AppController {
       'STELLAR_HORIZON_URL',
       'https://horizon-testnet.stellar.org',
     );
-
     return this.health.check([
       () => this.db.pingCheck('database'),
       () => this.http.pingCheck('stellar-rpc', stellarRpcUrl),
