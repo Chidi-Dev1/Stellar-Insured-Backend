@@ -14,6 +14,7 @@ import {
 import { IEventHandler, IEventHandlerRegistry } from '../interfaces/event-handler.interface';
 import { NotificationService } from '../../notification/services/notification.service';
 import { ReputationService } from '../../reputation/reputation.service';
+import { REPUTATION_DELTAS } from '../../reputation/reputation.constants';
 import { NotificationType } from '../../notification/enums/notification-type.enum';
 
 /**
@@ -83,6 +84,7 @@ class ContributionMadeHandler implements IEventHandler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly reputationService: ReputationService,
   ) {}
 
   validate(event: ParsedContractEvent): boolean {
@@ -144,6 +146,17 @@ class ContributionMadeHandler implements IEventHandler {
       );
     } catch (e) {
       this.logger.error(`Failed to send contribution notification to user ${user.id}: ${e.message}`);
+    }
+
+    // Reward the contributor's reputation for a successful on-chain contribution
+    try {
+      await this.reputationService.adjustReputation(
+        user.id,
+        REPUTATION_DELTAS.CONTRIBUTION_SUCCESS,
+        `Contribution of ${data.amount} to project ${data.projectId} recorded on-chain`,
+      );
+    } catch (e) {
+      this.logger.error(`Failed to adjust reputation for contribution by user ${user.id}: ${e.message}`);
     }
 
     this.logger.log(`Recorded contribution of ${data.amount} for project ${data.projectId}`);
@@ -220,6 +233,15 @@ class MilestoneApprovedHandler implements IEventHandler {
     if (project.creatorId) {
       await this.reputationService.updateTrustScore(project.creatorId);
       this.logger.log(`Updated trust score for creator ${project.creatorId}`);
+      try {
+        await this.reputationService.adjustReputation(
+          project.creatorId,
+          REPUTATION_DELTAS.MILESTONE_APPROVED,
+          `Milestone ${data.milestoneId} approved for project ${data.projectId}`,
+        );
+      } catch (e) {
+        this.logger.error(`Failed to adjust reputation for milestone approval, creator ${project.creatorId}: ${e.message}`);
+      }
     }
   }
 }
@@ -290,6 +312,15 @@ class MilestoneRejectedHandler implements IEventHandler {
     if (project.creatorId) {
       await this.reputationService.updateTrustScore(project.creatorId);
       this.logger.log(`Updated trust score for creator ${project.creatorId}`);
+      try {
+        await this.reputationService.adjustReputation(
+          project.creatorId,
+          REPUTATION_DELTAS.MILESTONE_REJECTED,
+          `Milestone ${data.milestoneId} rejected for project ${data.projectId}`,
+        );
+      } catch (e) {
+        this.logger.error(`Failed to adjust reputation for milestone rejection, creator ${project.creatorId}: ${e.message}`);
+      }
     }
   }
 }
@@ -454,7 +485,7 @@ export class EventHandlerService implements IEventHandlerRegistry {
 
   private registerHandlers(): void {
     this.register(new ProjectCreatedHandler(this.prisma));
-    this.register(new ContributionMadeHandler(this.prisma, this.notificationService));
+    this.register(new ContributionMadeHandler(this.prisma, this.notificationService, this.reputationService));
     this.register(new MilestoneApprovedHandler(this.prisma, this.notificationService, this.reputationService));
     this.register(new MilestoneRejectedHandler(this.prisma, this.notificationService, this.reputationService));
     this.register(new FundsReleasedHandler(this.prisma));

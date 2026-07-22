@@ -10,6 +10,8 @@ import { AuditAction } from './enums/audit-action.enum';
 import { PrismaService } from '../prisma.service';
 import { PoolService } from './pool.service';
 import { AuditService } from './services/audit.service';
+import { ReputationService } from '../reputation/reputation.service';
+import { REPUTATION_DELTAS } from '../reputation/reputation.constants';
 import { Claim, InsurancePolicy, Prisma } from '@prisma/client';
 
 type ClaimWithPolicy = Claim & { policy: InsurancePolicy };
@@ -22,6 +24,7 @@ export class ClaimService {
     private readonly prisma: PrismaService,
     private readonly pools: PoolService,
     private readonly auditService: AuditService,
+    private readonly reputationService: ReputationService,
   ) {}
 
   async assessClaim(claimId: string): Promise<ClaimWithPolicy> {
@@ -75,6 +78,12 @@ export class ClaimService {
         undefined,
         'High fraud risk score detected',
       );
+      // Adjust reputation for fraud detection
+      await this.reputationService.adjustReputation(
+        policy.userId,
+        REPUTATION_DELTAS.FRAUD_DETECTED,
+        `Fraud detected on claim ${claimId}`,
+      );
     }
 
     const oracleVerified = await this.verifyOracle(claimId);
@@ -103,6 +112,13 @@ export class ClaimService {
       );
       return result;
     });
+
+    // Adjust reputation after the transaction commits
+    await this.reputationService.adjustReputation(
+      policy.userId,
+      REPUTATION_DELTAS.CLAIM_APPROVED,
+      `Claim ${claimId} approved`,
+    );
 
     return updatedClaim;
   }
@@ -155,10 +171,27 @@ export class ClaimService {
       return updated;
     };
 
-    if (tx) {
-      return execute(tx);
+    const result = tx ? await execute(tx) : await this.prisma.$transaction(execute);
+
+    // Adjust reputation outside the transaction so it doesn't block the commit.
+    // Only fires for REJECTED status; APPROVED is handled directly in assessClaim.
+    if (status === ClaimStatus.REJECTED) {
+      const userId = result.policy?.userId;
+      if (userId) {
+        try {
+          await this.reputationService.adjustReputation(
+            userId,
+            REPUTATION_DELTAS.CLAIM_REJECTED,
+            `Claim ${claimId} rejected: ${reason}`,
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.error(`Failed to adjust reputation for claim rejection ${claimId}: ${msg}`);
+        }
+      }
     }
-    return this.prisma.$transaction(execute);
+
+    return result;
   }
 
   private async runFraudDetection(claim: Claim): Promise<boolean> {

@@ -7,6 +7,7 @@ import { EventHandlerService } from './services/event-handler.service';
 import { XdrDecoderService } from './services/xdr-decoder.service';
 import { DatabaseModule } from '../database.module';
 import { SoftDeleteModule } from '../prisma.soft-delete.module';
+import { ReputationModule } from '../reputation/reputation.module';
 import stellarConfig, { indexerConfig } from '../config/stellar.config';
 
 /**
@@ -23,6 +24,8 @@ import stellarConfig, { indexerConfig } from '../config/stellar.config';
     DatabaseModule,
     // Audited hard-delete utilities (re-org rollback purges)
     SoftDeleteModule,
+    // Reputation scoring
+    ReputationModule,
     // Configuration
     ConfigModule.forFeature(stellarConfig),
     ConfigModule.forFeature(indexerConfig),
