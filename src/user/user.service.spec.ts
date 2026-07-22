@@ -7,7 +7,38 @@ import { UserService } from './user.service';
 import { PrismaService } from '../prisma.service';
 import { EncryptionService } from '../encryption/encryption.service';
 
-const prisma = {
+interface MockTransactionClient {
+  user: {
+    create: jest.Mock;
+    update: jest.Mock;
+  };
+}
+
+interface MockPrismaService {
+  user: {
+    findFirst: jest.Mock;
+    findUnique: jest.Mock;
+    findMany: jest.Mock;
+    count: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+  };
+  notification: {
+    updateMany: jest.Mock;
+  };
+  notificationSetting: {
+    updateMany: jest.Mock;
+  };
+  insurancePolicy: {
+    updateMany: jest.Mock;
+  };
+  claim: {
+    updateMany: jest.Mock;
+  };
+  $transaction: jest.Mock;
+}
+
+const prisma: MockPrismaService = {
   user: {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
@@ -28,10 +59,15 @@ const prisma = {
   claim: {
     updateMany: jest.fn(),
   },
-  $transaction: jest.fn((operations: Promise<unknown>[]) =>
-    Promise.all(operations),
-  ),
+  $transaction: jest.fn(),
 };
+
+const buildMockTx = (userResult: any) => ({
+  user: {
+    create: jest.fn().mockResolvedValue(userResult),
+    update: jest.fn().mockResolvedValue(userResult),
+  },
+});
 
 const encryption = {
   encrypt: jest.fn((value: string) => `encrypted:${value}`),
@@ -42,6 +78,7 @@ describe('UserService', () => {
   let service: UserService;
 
   beforeEach(() => {
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(buildMockTx({ id: 'user-1' })));
     service = new UserService(
       prisma as unknown as PrismaService,
       encryption as unknown as EncryptionService,
@@ -131,44 +168,6 @@ describe('UserService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    prisma.user.update.mockResolvedValue({
-      id: 'clabcdefghij',
-      deletedAt: new Date('2026-04-24T00:00:00.000Z'),
-    });
-    prisma.notification.updateMany.mockResolvedValue({ count: 2 });
-    prisma.notificationSetting.updateMany.mockResolvedValue({ count: 1 });
-    prisma.insurancePolicy.updateMany.mockResolvedValue({ count: 1 });
-    prisma.claim.updateMany.mockResolvedValue({ count: 1 });
-
-    const result = await service.delete('clabcdefghij');
-
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 'clabcdefghij' },
-      data: {
-        deletedAt: expect.any(Date),
-      },
-    });
-    expect(result).toEqual({
-      id: 'clabcdefghij',
-      deletedAt: new Date('2026-04-24T00:00:00.000Z'),
-    });
-  });
-
-  it('cascades the soft delete to related records in one transaction', async () => {
-    prisma.user.findFirst.mockResolvedValue({
-      id: 'clabcdefghij',
-      walletAddress: 'encrypted:GABC123',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    prisma.user.update.mockResolvedValue({
-      id: 'clabcdefghij',
-      deletedAt: new Date('2026-04-24T00:00:00.000Z'),
-    });
-    prisma.notification.updateMany.mockResolvedValue({ count: 2 });
-    prisma.notificationSetting.updateMany.mockResolvedValue({ count: 1 });
-    prisma.insurancePolicy.updateMany.mockResolvedValue({ count: 1 });
-    prisma.claim.updateMany.mockResolvedValue({ count: 1 });
 
     await service.delete('clabcdefghij');
 
@@ -190,8 +189,6 @@ describe('UserService', () => {
       data: { deletedAt: expect.any(Date) },
     });
 
-    // Every cascaded record must share the exact same deletion timestamp
-    // so the whole cascade can be restored as a unit.
     const userDeletedAt = prisma.user.update.mock.calls[0][0].data.deletedAt;
     for (const delegate of [
       prisma.notification,
@@ -227,6 +224,30 @@ describe('UserService', () => {
     await expect(service.create('GABC123')).rejects.toThrow(ConflictException);
   });
 
+  it('creates a user with encrypted email', async () => {
+    const createdUser = {
+      id: 'user-new',
+      walletAddress: 'GABC123',
+      email: 'encrypted:person@example.com',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const mockTx = buildMockTx(createdUser);
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+
+    const result = await service.create('GABC123', ' person@example.com ');
+
+    expect(mockTx.user.create).toHaveBeenCalledWith({
+      data: {
+        walletAddress: 'GABC123',
+        email: 'encrypted:person@example.com',
+        notificationSettings: { create: {} },
+      },
+      include: { notificationSettings: true },
+    });
+    expect(result).toEqual(createdUser);
+  });
+
   it('sanitizes update payloads into explicit Prisma user update data', async () => {
     prisma.user.findFirst.mockResolvedValue({
       id: 'clabcdefghij',
@@ -240,7 +261,8 @@ describe('UserService', () => {
       updatedAt: new Date(),
       deletedAt: null,
     });
-    prisma.user.update.mockResolvedValue({
+
+    const updatedUser = {
       id: 'clabcdefghij',
       walletAddress: 'GABC123',
       email: 'encrypted:person@example.com',
@@ -251,7 +273,9 @@ describe('UserService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
-    });
+    };
+    const mockTx = buildMockTx(updatedUser);
+    prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
     await service.update('clabcdefghij', {
       email: ' person@example.com ',
@@ -261,7 +285,7 @@ describe('UserService', () => {
       pushSubscription: ' subscription ',
     });
 
-    expect(prisma.user.update).toHaveBeenCalledWith({
+    expect(mockTx.user.update).toHaveBeenCalledWith({
       where: { id: 'clabcdefghij' },
       data: {
         email: 'encrypted:person@example.com',

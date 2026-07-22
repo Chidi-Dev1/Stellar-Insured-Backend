@@ -128,16 +128,19 @@ export class UserService {
       ? this.encryption.encrypt(sanitizedEmail)
       : null;
 
-    return this.prisma.user.create({
-      data: {
-        walletAddress: sanitizedAddress, // Keep as-is for unique constraint and public lookup
-        email: encryptedEmail,
-        notificationSettings: {
-          create: {},
+    const user = await this.prisma.$transaction(async tx => {
+      return tx.user.create({
+        data: {
+          walletAddress: sanitizedAddress,
+          email: encryptedEmail,
+          notificationSettings: {
+            create: {},
+          },
         },
-      },
-      include: { notificationSettings: true },
+        include: { notificationSettings: true },
+      });
     });
+    return user;
   }
 
   async update(id: string, updateData: UpdateUserDto): Promise<User> {
@@ -170,10 +173,13 @@ export class UserService {
       );
     }
 
-    return this.prisma.user.update({
-      where: { id },
-      data,
+    const updatedUser = await this.prisma.$transaction(async tx => {
+      return tx.user.update({
+        where: { id },
+        data,
+      });
     });
+    return updatedUser;
   }
 
   /**

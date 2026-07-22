@@ -7,6 +7,14 @@ import { PoolService } from './pool.service';
 import { AuditService } from './services/audit.service';
 import { Prisma } from '@prisma/client';
 
+interface MockTransactionClient {
+  claim: {
+    findUnique: jest.Mock;
+    update: jest.Mock;
+    count: jest.Mock;
+  };
+}
+
 interface MockPrismaService {
   claim: {
     findUnique: jest.Mock;
@@ -14,6 +22,7 @@ interface MockPrismaService {
     create: jest.Mock;
     count: jest.Mock;
   };
+  $transaction: jest.Mock;
 }
 
 interface MockPoolService {
@@ -56,6 +65,14 @@ describe('ClaimService', () => {
     policy: mockPolicy,
   };
 
+  const buildMockTx = (updateResult: any) => ({
+    claim: {
+      findUnique: jest.fn(),
+      update: jest.fn().mockResolvedValue(updateResult),
+      count: jest.fn(),
+    },
+  });
+
   beforeEach(() => {
     prisma = {
       claim: {
@@ -64,6 +81,13 @@ describe('ClaimService', () => {
         create: jest.fn(),
         count: jest.fn(),
       },
+      $transaction: jest.fn().mockImplementation(async (fn: (tx: any) => Promise<any>) => fn({
+        claim: {
+          findUnique: jest.fn(),
+          update: jest.fn(),
+          count: jest.fn(),
+        },
+      })),
     };
 
     pools = {
@@ -134,15 +158,19 @@ describe('ClaimService', () => {
 
     it('should reject claim if policy is not active', async () => {
       const inactivePolicy = { ...mockPolicy, status: PolicyStatus.EXPIRED };
-      prisma.claim.findUnique.mockResolvedValue({
-        ...mockClaim,
-        policy: inactivePolicy,
-      });
-      prisma.claim.update.mockResolvedValue({
+      const claimWithInactivePolicy = { ...mockClaim, policy: inactivePolicy };
+
+      prisma.claim.findUnique.mockResolvedValue(claimWithInactivePolicy);
+      prisma.claim.count.mockResolvedValue(0);
+
+      const mockTx = buildMockTx({
         ...mockClaim,
         status: ClaimStatus.REJECTED,
         policy: inactivePolicy,
       });
+      mockTx.claim.findUnique.mockResolvedValue(claimWithInactivePolicy);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(
@@ -152,11 +180,17 @@ describe('ClaimService', () => {
 
     it('should reject claim if claim amount exceeds coverage', async () => {
       const claim = { ...mockClaim, claimAmount: new Prisma.Decimal(200000) };
+
       prisma.claim.findUnique.mockResolvedValue(claim);
-      prisma.claim.update.mockResolvedValue({
+      prisma.claim.count.mockResolvedValue(0);
+
+      const mockTx = buildMockTx({
         ...claim,
         status: ClaimStatus.REJECTED,
       });
+      mockTx.claim.findUnique.mockResolvedValue(claim);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(
@@ -174,14 +208,18 @@ describe('ClaimService', () => {
 
       prisma.claim.findUnique
         .mockResolvedValueOnce(claim) // assessClaim main fetch
-        .mockResolvedValueOnce(claim) // updateStatus fetch (before rejection)
-        .mockResolvedValueOnce({ ...claim, policy: expiredPolicy }); // verifyOracle fetch
+        .mockResolvedValueOnce(claim); // verifyOracle fetch
 
       prisma.claim.count.mockResolvedValue(0);
-      prisma.claim.update.mockResolvedValue({
+
+      const mockTx = buildMockTx({
         ...claim,
         status: ClaimStatus.REJECTED,
+        policy: expiredPolicy,
       });
+      mockTx.claim.findUnique.mockResolvedValue(claim);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(
@@ -202,7 +240,9 @@ describe('ClaimService', () => {
         .mockResolvedValueOnce(claim); // verifyOracle
 
       prisma.claim.count.mockResolvedValue(0);
-      prisma.claim.update.mockResolvedValue(approvedClaim);
+
+      const mockTx = buildMockTx(approvedClaim);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       const result = await service.assessClaim('claim-1');
 
@@ -226,7 +266,8 @@ describe('ClaimService', () => {
         .mockResolvedValueOnce(1) // duplicate claims count > 0
         .mockResolvedValueOnce(0); // recent claims count < 3
 
-      prisma.claim.update.mockResolvedValue(approvedClaim);
+      const mockTx = buildMockTx(approvedClaim);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       const result = await service.assessClaim('claim-1');
 
@@ -253,12 +294,13 @@ describe('ClaimService', () => {
         .mockResolvedValueOnce(1) // duplicate claims
         .mockResolvedValueOnce(4); // recent claims >= 3
 
-      prisma.claim.update.mockResolvedValue(approvedClaim);
+      const mockTx = buildMockTx(approvedClaim);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       await service.assessClaim('claim-1');
 
       expect(auditService.log).toHaveBeenCalledWith(
-        expect.anything(), // AuditAction.FRAUD_DETECTED
+        expect.anything(),
         'Claim',
         'claim-1',
         expect.any(Object),
@@ -271,7 +313,15 @@ describe('ClaimService', () => {
 
   describe('payClaim', () => {
     it('should throw NotFoundException if claim does not exist', async () => {
-      prisma.claim.findUnique.mockResolvedValue(null);
+      const mockTx: MockTransactionClient = {
+        claim: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          update: jest.fn(),
+          count: jest.fn(),
+        },
+      };
+
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       await expect(service.payClaim('nonexistent')).rejects.toThrow(
         NotFoundException,
@@ -281,23 +331,37 @@ describe('ClaimService', () => {
     it('should update claim status to PAID', async () => {
       const claim = { ...mockClaim };
       const paidClaim = { ...claim, status: ClaimStatus.PAID };
-      prisma.claim.findUnique.mockResolvedValue(claim);
-      prisma.claim.update.mockResolvedValue(paidClaim);
+
+      const mockTx: MockTransactionClient = {
+        claim: {
+          findUnique: jest.fn().mockResolvedValue(claim),
+          update: jest.fn().mockResolvedValue(paidClaim),
+          count: jest.fn(),
+        },
+      };
+
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       const result = await service.payClaim('claim-1');
 
       expect(result.status).toBe(ClaimStatus.PAID);
-      expect(pools.unlockCapital).toHaveBeenCalledWith('pool-1', new Prisma.Decimal(50000));
+      expect(pools.unlockCapital).toHaveBeenCalledWith('pool-1', new Prisma.Decimal(50000), expect.anything());
     });
 
     it('should call auditService.logPayout after paying', async () => {
       const claim = { ...mockClaim };
-      prisma.claim.findUnique.mockResolvedValue(claim);
-      prisma.claim.update.mockResolvedValue({
-        ...claim,
-        status: ClaimStatus.PAID,
-      });
+      const paidClaim = { ...claim, status: ClaimStatus.PAID };
+
+      const mockTx: MockTransactionClient = {
+        claim: {
+          findUnique: jest.fn().mockResolvedValue(claim),
+          update: jest.fn().mockResolvedValue(paidClaim),
+          count: jest.fn(),
+        },
+      };
+
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
 
       await service.payClaim('claim-1');
@@ -307,6 +371,9 @@ describe('ClaimService', () => {
         'claim-1',
         expect.any(Object),
         expect.any(Object),
+        undefined,
+        undefined,
+        expect.anything(),
       );
     });
   });

@@ -11,31 +11,38 @@ export class ReinsuranceService {
   ) {}
 
   async createContract(poolId: string, coverageLimit: Prisma.Decimal, premiumRate: Prisma.Decimal) {
-    const savedContract = await this.prisma.reinsuranceContract.create({
-      data: { poolId, coverageLimit, premiumRate },
+    const savedContract = await this.prisma.$transaction(async tx => {
+      const contract = await tx.reinsuranceContract.create({
+        data: { poolId, coverageLimit, premiumRate },
+      });
+      await this.auditService.logCreate('ReinsuranceContract', contract.id, contract, undefined, undefined, tx);
+      return contract;
     });
-    await this.auditService.logCreate('ReinsuranceContract', savedContract.id, savedContract);
     return savedContract;
   }
 
   async releaseContract(contractId: string) {
-    const contract = await this.prisma.reinsuranceContract.findUnique({
-      where: { id: contractId },
+    const contract = await this.prisma.$transaction(async tx => {
+      const existing = await tx.reinsuranceContract.findUnique({
+        where: { id: contractId },
+      });
+      if (!existing) {
+        throw new BadRequestException(`Reinsurance contract ${contractId} not found`);
+      }
+      const beforeState = { ...existing };
+      const released = await tx.reinsuranceContract.delete({
+        where: { id: contractId },
+      });
+      await this.auditService.logDelete(
+        'ReinsuranceContract',
+        contractId,
+        beforeState,
+        undefined,
+        'Reinsurance contract released',
+        tx,
+      );
+      return released;
     });
-    if (!contract) {
-      throw new BadRequestException(`Reinsurance contract ${contractId} not found`);
-    }
-    const beforeState = { ...contract };
-    const released = await this.prisma.reinsuranceContract.delete({
-      where: { id: contractId },
-    });
-    await this.auditService.logDelete(
-      'ReinsuranceContract',
-      contractId,
-      beforeState,
-      undefined,
-      'Reinsurance contract released',
-    );
-    return released;
+    return contract;
   }
 }

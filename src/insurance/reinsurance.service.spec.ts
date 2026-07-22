@@ -5,6 +5,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 interface MockPrismaService {
+  $transaction: jest.Mock;
   reinsuranceContract: {
     create: jest.Mock;
     findUnique: jest.Mock;
@@ -24,6 +25,7 @@ describe('ReinsuranceService', () => {
 
   beforeEach(() => {
     prisma = {
+      $transaction: jest.fn(),
       reinsuranceContract: {
         create: jest.fn(),
         findUnique: jest.fn(),
@@ -56,11 +58,17 @@ describe('ReinsuranceService', () => {
         ...contractData,
         createdAt: new Date(),
       };
-      prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
+
+      const mockTx = {
+        reinsuranceContract: {
+          create: jest.fn().mockResolvedValue(createdContract),
+        },
+      };
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       const result = await service.createContract('pool-1', new Prisma.Decimal(50000), new Prisma.Decimal(0.02));
 
-      expect(prisma.reinsuranceContract.create).toHaveBeenCalledWith({
+      expect(mockTx.reinsuranceContract.create).toHaveBeenCalledWith({
         data: {
           poolId: 'pool-1',
           coverageLimit: new Prisma.Decimal(50000),
@@ -78,7 +86,13 @@ describe('ReinsuranceService', () => {
         premiumRate: 0.05,
         createdAt: new Date(),
       };
-      prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
+
+      const mockTx = {
+        reinsuranceContract: {
+          create: jest.fn().mockResolvedValue(createdContract),
+        },
+      };
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       await service.createContract('pool-1', new Prisma.Decimal(100000), new Prisma.Decimal(0.05));
 
@@ -86,6 +100,8 @@ describe('ReinsuranceService', () => {
         'ReinsuranceContract',
         'contract-1',
         createdContract,
+        undefined,
+        undefined,
       );
     });
 
@@ -96,11 +112,17 @@ describe('ReinsuranceService', () => {
         coverageLimit: 25000,
         premiumRate: 0.03,
       };
-      prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
+
+      const mockTx = {
+        reinsuranceContract: {
+          create: jest.fn().mockResolvedValue(createdContract),
+        },
+      };
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       await service.createContract('p-2', new Prisma.Decimal(25000), new Prisma.Decimal(0.03));
 
-      expect(prisma.reinsuranceContract.create).toHaveBeenCalledWith({
+      expect(mockTx.reinsuranceContract.create).toHaveBeenCalledWith({
         data: {
           poolId: 'p-2',
           coverageLimit: new Prisma.Decimal(25000),
@@ -112,7 +134,14 @@ describe('ReinsuranceService', () => {
 
   describe('releaseContract', () => {
     it('should throw BadRequestException if contract not found', async () => {
-      prisma.reinsuranceContract.findUnique.mockResolvedValue(null);
+      const mockTx = {
+        reinsuranceContract: {
+          create: jest.fn(),
+          findUnique: jest.fn().mockResolvedValue(null),
+          delete: jest.fn(),
+        },
+      };
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       await expect(service.releaseContract('missing')).rejects.toThrow(
         BadRequestException,
@@ -127,12 +156,19 @@ describe('ReinsuranceService', () => {
         premiumRate: 0.02,
         createdAt: new Date(),
       };
-      prisma.reinsuranceContract.findUnique.mockResolvedValue(contract);
-      prisma.reinsuranceContract.delete.mockResolvedValue(contract);
+
+      const mockTx = {
+        reinsuranceContract: {
+          create: jest.fn(),
+          findUnique: jest.fn().mockResolvedValue(contract),
+          delete: jest.fn().mockResolvedValue(contract),
+        },
+      };
+      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
 
       const result = await service.releaseContract('contract-1');
 
-      expect(prisma.reinsuranceContract.delete).toHaveBeenCalledWith({
+      expect(mockTx.reinsuranceContract.delete).toHaveBeenCalledWith({
         where: { id: 'contract-1' },
       });
       expect(result).toEqual(contract);
