@@ -185,6 +185,10 @@ export class UserService {
       });
     });
     return updatedUser;
+    const { beforeState, afterState } = this.auditService.snapshotDiff(beforeSnapshot, { id: updatedUser.id, email: updatedUser.email, profileData: updatedUser.profileDat    const beforeUser = await this.findById(id);
+    const beforeSnapshot = { id: beforeUser.id, email: beforeUser.email, profileData: beforeUser.profileData, pushSubscription: beforeUser.pushSubscription };
+    a, pushSubscription: updatedUser.pushSubscription });
+    await this.auditService.log(AuditAction.UPDATE, 'User', id, beforeState, afterState, undefined, 'Profile updated');
   }
 
   /**
