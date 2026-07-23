@@ -18,7 +18,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IndexerService.name);
   private readonly rpc: SorobanRpc.Server;
   private readonly network: string;
-  private readonly pollIntervalMs: number;
+  private pollIntervalMs: number;
   private readonly maxEventsPerFetch: number;
   private readonly retryAttempts: number;
   private readonly retryDelayMs: number;
@@ -135,7 +135,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
       // Register dynamic interval using config value
       const callback = () => this.scheduledPoll();
-      this.schedulerRegistry.addInterval('indexer-poll', callback, this.pollIntervalMs);
+      const interval = setInterval(callback, this.pollIntervalMs); this.schedulerRegistry.addInterval('indexer-poll', interval);
       this.logger.log(`Registered poll interval: ${this.pollIntervalMs}ms`);
     } catch (error) {
       this.logger.error(`Failed to initialize indexer: ${error.message}`, error.stack);
@@ -167,10 +167,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
     // Register new interval
     const callback = () => this.scheduledPoll();
-    this.schedulerRegistry.addInterval('indexer-poll', callback, intervalMs);
+    const interval = setInterval(callback, intervalMs); this.schedulerRegistry.addInterval('indexer-poll', interval);
 
     // Update the stored value
-    (this as { pollIntervalMs: number }).pollIntervalMs = intervalMs;
+    this.pollIntervalMs = intervalMs;
   }
 
   /**
@@ -249,7 +249,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
       // Only advance cursor to the last successfully processed ledger
       // Never skip past ledgers with unprocessed/errored events
-      if (lastSuccessfulLedger > (await this.ledgerTracker.getLastCursor())?.lastLedgerSeq ?? 0) {
+      if (lastSuccessfulLedger > ((await this.ledgerTracker.getLastCursor())?.lastLedgerSeq ?? 0)) {
         await this.ledgerTracker.updateCursor(lastSuccessfulLedger);
       }
 
