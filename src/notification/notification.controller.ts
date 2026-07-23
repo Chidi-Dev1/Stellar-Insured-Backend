@@ -8,6 +8,7 @@ import {
     HttpCode,
     BadRequestException,
     NotFoundException,
+    Version,
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import {
@@ -20,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { PrismaService } from '../prisma.service';
 import { EncryptionService } from '../encryption/encryption.service';
+import { UserIdParamDto } from '../common/dto/user-id-param.dto';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
 import { PushSubscriptionDto } from './dto/push-subscription.dto';
 import { NotificationService } from './services/notification.service';
@@ -38,6 +40,7 @@ export class NotificationController {
     ) { }
 
     @Throttle({ default: { limit: 10, ttl: 60000 } })
+    @Version('1')
     @Post('notify')
     @HttpCode(202)
     @ApiOperation({
@@ -61,11 +64,13 @@ export class NotificationController {
     }
 
     @Throttle({ default: {} })
+    @Version('1')
     @Get('settings/:userId')
     @ApiOperation({ summary: 'Fetch notification settings for a user' })
     @ApiParam({ name: 'userId', type: String, description: 'ID of the user' })
     @ApiOkResponse({ description: 'Notification settings for the user' })
-    async getSettings(@Param('userId') userId: string) {
+    async getSettings(@Param() params: UserIdParamDto) {
+        const userId = params.userId;
         await this.ensureActiveUser(userId);
 
         return this.prisma.notificationSetting.upsert({
@@ -79,15 +84,17 @@ export class NotificationController {
     }
 
     @Throttle({ default: { limit: 5, ttl: 60000 } })
+    @Version('1')
     @Put('settings/:userId')
     @ApiOperation({ summary: 'Update notification preferences for a user' })
     @ApiParam({ name: 'userId', type: String, description: 'ID of the user' })
     @ApiBody({ type: UpdateNotificationSettingsDto })
     @ApiOkResponse({ description: 'Updated notification settings' })
     async updateSettings(
-        @Param('userId') userId: string,
+        @Param() params: UserIdParamDto,
         @Body() settings: UpdateNotificationSettingsDto,
     ) {
+        const userId = params.userId;
         await this.ensureActiveUser(userId);
 
         return this.prisma.notificationSetting.upsert({
@@ -101,15 +108,17 @@ export class NotificationController {
     }
 
     @Throttle({ default: { limit: 3, ttl: 60000 } })
+    @Version('1')
     @Post('subscribe/:userId')
     @ApiOperation({ summary: 'Subscribe a user to push notifications' })
     @ApiParam({ name: 'userId', type: String, description: 'ID of the subscribing user' })
     @ApiBody({ type: PushSubscriptionDto })
     @ApiOkResponse({ description: 'Subscription created successfully' })
     async subscribeToPush(
-        @Param('userId') userId: string,
+        @Param() params: UserIdParamDto,
         @Body() subscription: PushSubscriptionDto,
     ) {
+        const userId = params.userId;
         // Validate subscription structure
         if (!subscription.endpoint || !subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
             throw new BadRequestException('Invalid push subscription format');
@@ -160,3 +169,4 @@ export class NotificationController {
         }
     }
 }
+
