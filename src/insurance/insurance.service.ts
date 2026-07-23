@@ -38,7 +38,7 @@ export class InsuranceService {
 
         await this.pools.lockCapital(poolId, coverageAmount, tx);
 
-        return tx.insurancePolicy.create({
+        const created = await tx.insurancePolicy.create({
           data: {
             userId,
             poolId,
@@ -47,8 +47,8 @@ export class InsuranceService {
             premium,
           },
         });
-        await this.auditService.logPurchase('InsurancePolicy', policy.id, policy, undefined, 'Policy purchased');
-        return policy;
+        await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased');
+        return created;
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
