@@ -100,6 +100,7 @@ export class NotificationController {
                 userId,
                 ...settings,
         
+
         // Audit the settings change
         await this.auditService.log(AuditAction.UPDATE, 'NotificationSetting', userId, undefined, settings, undefined, 'Notification settings updated');
     },
