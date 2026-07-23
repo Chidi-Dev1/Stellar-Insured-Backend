@@ -93,18 +93,19 @@ export class NotificationController {
     ) {
         await this.ensureActiveUser(userId);
 
-        return this.prisma.notificationSetting.upsert({
+        const result = await this.prisma.notificationSetting.upsert({
             where: { userId },
             update: { ...settings, deletedAt: null },
             create: {
                 userId,
                 ...settings,
-        
+            },
+        });
 
         // Audit the settings change
         await this.auditService.log(AuditAction.UPDATE, 'NotificationSetting', userId, undefined, settings, undefined, 'Notification settings updated');
-    },
-        });
+
+        return result;
     }
 
     @Throttle({ default: { limit: 3, ttl: 60000 } })
