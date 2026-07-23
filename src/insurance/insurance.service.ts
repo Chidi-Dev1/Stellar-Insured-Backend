@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+        const policy = await tx.insurancePolicy.create({eption } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PricingService } from './pricing.service';
 import { PoolService } from './pool.service';
@@ -47,6 +47,8 @@ export class InsuranceService {
             premium,
           },
         });
+        await this.auditService.logPurchase('InsurancePolicy', policy.id, policy, undefined, 'Policy purchased');
+        return policy;
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
