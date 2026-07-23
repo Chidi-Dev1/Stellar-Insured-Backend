@@ -14,6 +14,8 @@ import {
   isValidWalletAddress,
 } from '../common/utils/sanitization.util';
 import { REPUTATION_DELTAS } from '../reputation/reputation.constants';
+import { AuditService } from '../insurance/services/audit.service';
+import { AuditAction } from '../insurance/enums/audit-action.enum';
 import { Prisma, User } from '@prisma/client';
 
 export interface PaginatedUsers {
@@ -31,6 +33,7 @@ export class UserService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
+    private readonly auditService: AuditService,
   ) {}
 
   async findById(id: string): Promise<User> {
@@ -223,6 +226,7 @@ export class UserService {
       }),
     ]);
 
+    await this.auditService.log(AuditAction.DELETE, 'User', id, { id, deletedAt: null }, { id, deletedAt: deletedUser.deletedAt }, undefined, 'User soft-deleted');
     return {
       id: deletedUser.id,
       deletedAt: deletedUser.deletedAt,
