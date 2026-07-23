@@ -14,6 +14,8 @@ import {
   isValidWalletAddress,
 } from '../common/utils/sanitization.util';
 import { REPUTATION_DELTAS } from '../reputation/reputation.constants';
+import { AuditService } from '../insurance/services/audit.service';
+import { AuditAction } from '../insurance/enums/audit-action.enum';
 import { Prisma, User } from '@prisma/client';
 
 export interface PaginatedUsers {
@@ -31,6 +33,7 @@ export class UserService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
+    private readonly auditService: AuditService,
   ) {}
 
   async findById(id: string): Promise<User> {
@@ -175,6 +178,9 @@ export class UserService {
       );
     }
 
+        const beforeUser = await this.findById(id);
+    const beforeSnapshot = { id: beforeUser.id, email: beforeUser.email, profileData: beforeUser.profileData, pushSubscription: beforeUser.pushSubscription };
+
     const updatedUser = await this.prisma.$transaction(async tx => {
       return tx.user.update({
         where: { id },
@@ -182,6 +188,8 @@ export class UserService {
       });
     });
     return updatedUser;
+    const { beforeState, afterState } = this.auditService.snapshotDiff(beforeSnapshot, { id: updatedUser.id, email: updatedUser.email, profileData: updatedUser.profileData, pushSubscription: updatedUser.pushSubscription });
+    await this.auditService.log(AuditAction.UPDATE, 'User', id, beforeState, afterState, undefined, 'Profile updated');
   }
 
   /**
@@ -223,6 +231,7 @@ export class UserService {
       }),
     ]);
 
+    await this.auditService.log(AuditAction.DELETE, 'User', id, { id, deletedAt: null }, { id, deletedAt: deletedUser.deletedAt }, undefined, 'User soft-deleted');
     return {
       id: deletedUser.id,
       deletedAt: deletedUser.deletedAt,
