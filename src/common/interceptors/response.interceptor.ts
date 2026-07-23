@@ -1,6 +1,7 @@
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
-import { Observable, map } from 'rxjs';
-import { Prisma } from '@prisma/client';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
+import { Observable, map, catchError } from 'rxjs';
+import { jsonReplacer } from '../utils/json-replacer.util';
+import { SerializationTransformer } from '../utils/serialization.util';
 
 export interface SuccessResponse<T = unknown> {
   success: true;
@@ -10,57 +11,100 @@ export interface SuccessResponse<T = unknown> {
 
 @Injectable()
 export class ResponseTransformInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(ResponseTransformInterceptor.name);
+
   intercept(
     _context: ExecutionContext,
     next: CallHandler,
   ): Observable<SuccessResponse<unknown> | unknown> {
-    return next.handle().pipe(map((body) => this.formatResponse(body)));
+    return next.handle().pipe(
+      map((body) => this.formatResponse(body)),
+      catchError((error) => {
+        this.logger.error(`Response serialization error: ${error.message}`, error.stack);
+        throw error;
+      }),
+    );
   }
 
   private formatResponse(body: unknown): unknown {
-    if (
-      body &&
-      typeof body === 'object' &&
-      !Array.isArray(body) &&
-      'success' in body &&
-      typeof (body as any).success === 'boolean'
-    ) {
-      return body;
-    }
+    try {
+      if (
+        body &&
+        typeof body === 'object' &&
+        !Array.isArray(body) &&
+        'success' in body &&
+        typeof (body as any).success === 'boolean'
+      ) {
+        return body;
+      }
 
-    if (
-      body &&
-      typeof body === 'object' &&
-      !Array.isArray(body) &&
-      'data' in body &&
-      'meta' in body
-    ) {
-      const { data, meta } = body as any;
-      return { success: true, data: this.serializeDecimals(this.stripSoftDeleteMetadata(data)), meta };
-    }
+      if (
+        body &&
+        typeof body === 'object' &&
+        !Array.isArray(body) &&
+        'data' in body &&
+        'meta' in body
+      ) {
+        const { data, meta } = body as any;
+        return {
+          success: true,
+          data: this.serializeSpecialTypes(this.stripSoftDeleteMetadata(data)),
+          meta,
+        };
+      }
 
-    return { success: true, data: this.serializeDecimals(this.stripSoftDeleteMetadata(body)) };
+      return {
+        success: true,
+        data: this.serializeSpecialTypes(this.stripSoftDeleteMetadata(body)),
+      };
+    } catch (error) {
+      this.logger.error(`Error formatting response: ${error.message}`, error.stack);
+      // Return a safe fallback response if serialization fails
+      return {
+        success: true,
+        data: this.safeSerialize(body),
+      };
+    }
   }
 
-  private serializeDecimals(value: unknown): unknown {
+  private serializeSpecialTypes(value: unknown): unknown {
+    try {
+      return SerializationTransformer.transform(value);
+    } catch (error) {
+      this.logger.warn(`Serialization error, falling back to safe serialize: ${error.message}`);
+      return this.safeSerialize(value);
+    }
+  }
+
+  /**
+   * Safe serialization fallback that handles errors gracefully
+   */
+  private safeSerialize(value: unknown): unknown {
     if (value === null || value === undefined) {
       return value;
     }
 
-    if (value instanceof Prisma.Decimal) {
-      return value.toString();
+    // Use the jsonReplacer for individual values
+    const replaced = jsonReplacer('', value);
+    if (replaced !== value) {
+      return replaced;
     }
 
     if (Array.isArray(value)) {
-      return value.map(item => this.serializeDecimals(item));
+      return value.map(item => this.safeSerialize(item));
     }
 
     if (typeof value === 'object') {
-      const result: Record<string, unknown> = {};
-      for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-        result[key] = this.serializeDecimals(entry);
+      try {
+        const result: Record<string, unknown> = {};
+        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+          result[key] = this.safeSerialize(entry);
+        }
+        return result;
+      } catch (error) {
+        // If object serialization fails, return string representation
+        return String(value);
       }
-      return result;
     }
 
     return value;
