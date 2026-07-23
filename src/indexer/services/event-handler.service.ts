@@ -16,6 +16,7 @@ import { NotificationService } from '../../notification/services/notification.se
 import { ReputationService } from '../../reputation/reputation.service';
 import { REPUTATION_DELTAS } from '../../reputation/reputation.constants';
 import { NotificationType } from '../../notification/enums/notification-type.enum';
+import { SerializationTransformer } from '../../common/utils/serialization.util';
 
 /**
  * Handler for PROJECT_CREATED events
