@@ -24,6 +24,8 @@ import { UpdateNotificationSettingsDto } from './dto/update-notification-setting
 import { PushSubscriptionDto } from './dto/push-subscription.dto';
 import { NotificationService } from './services/notification.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
+import { AuditService } from '../insurance/services/audit.service';
+import { AuditAction } from '../insurance/enums/audit-action.enum';
 import { Prisma } from 'node_modules/@prisma/client/default';
 
 @ApiTags('Notifications')
@@ -35,6 +37,7 @@ export class NotificationController {
         private readonly prisma: PrismaService,
         private readonly encryption: EncryptionService,
         private readonly notificationService: NotificationService,
+        private readonly auditService: AuditService,
     ) { }
 
     @Throttle({ default: { limit: 10, ttl: 60000 } })
@@ -96,7 +99,10 @@ export class NotificationController {
             create: {
                 userId,
                 ...settings,
-            },
+        
+        // Audit the settings change
+        await this.auditService.log(AuditAction.UPDATE, 'NotificationSetting', userId, undefined, settings, undefined, 'Notification settings updated');
+    },
         });
     }
 
