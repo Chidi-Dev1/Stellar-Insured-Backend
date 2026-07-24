@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { logger } from './config/winston.config';
 import * as expressWinston from 'express-winston';
 import * as winston from 'winston';
+import { jsonReplacer } from './common/utils/json-replacer.util';
 
 async function bootstrap() {
   const bootstrapLogger = new Logger('Bootstrap');
@@ -31,6 +32,10 @@ async function bootstrap() {
 
   // Cookie parser
   app.use(cookieParser());
+
+  // Configure Express JSON serializer to handle BigInt, Decimal, and Date
+  // This ensures consistent serialization across all response paths
+  app.set('json replacer', jsonReplacer);
 
   // Security headers with Helmet
   app.use(helmet({

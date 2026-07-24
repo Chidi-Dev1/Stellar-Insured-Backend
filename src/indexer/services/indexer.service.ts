@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Interval } from '@nestjs/schedule';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { rpc as SorobanRpc } from 'stellar-sdk';
 import { PrismaService } from '../../prisma.service';
 import { LedgerTrackerService } from './ledger-tracker.service';
@@ -18,7 +18,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IndexerService.name);
   private readonly rpc: SorobanRpc.Server;
   private readonly network: string;
-  private readonly pollIntervalMs: number;
+  private pollIntervalMs: number;
   private readonly maxEventsPerFetch: number;
   private readonly retryAttempts: number;
   private readonly retryDelayMs: number;
@@ -33,6 +33,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     private readonly ledgerTracker: LedgerTrackerService,
     private readonly eventHandler: EventHandlerService,
     private readonly xdrDecoder: XdrDecoderService,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {
     // Initialize configuration
     this.network = this.configService.get<string>('STELLAR_NETWORK', 'testnet');
@@ -100,6 +101,13 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Shutting down blockchain indexer...');
     this.isShuttingDown = true;
 
+    // Remove the scheduled interval
+    try {
+      this.schedulerRegistry.deleteInterval('indexer-poll');
+    } catch {
+      // Interval may not exist yet
+    }
+
     // Wait for current processing to complete
     while (this.isRunning) {
       await this.sleep(100);
@@ -125,8 +133,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       const startLedger = await this.ledgerTracker.getStartLedger(latestLedger);
       this.logger.log(`Starting indexing from ledger ${startLedger}`);
 
-      // Trigger initial sync
-      await this.pollEvents();
+      // Register dynamic interval using config value
+      const callback = () => this.scheduledPoll();
+      const interval = setInterval(callback, this.pollIntervalMs); this.schedulerRegistry.addInterval('indexer-poll', interval);
+      this.logger.log(`Registered poll interval: ${this.pollIntervalMs}ms`);
     } catch (error) {
       this.logger.error(`Failed to initialize indexer: ${error.message}`, error.stack);
       throw error;
@@ -136,10 +146,38 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Scheduled polling job - runs at configured interval
    */
-  @Interval(5000) // Will use dynamic interval from config
   async scheduledPoll(): Promise<void> {
     if (this.isShuttingDown) return;
     await this.pollEvents();
+  }
+
+  /**
+   * Update the poll interval dynamically
+   * @param intervalMs New interval in milliseconds
+   */
+  updatePollInterval(intervalMs: number): void {
+    this.logger.log(`Updating poll interval from ${this.pollIntervalMs}ms to ${intervalMs}ms`);
+
+    // Remove existing interval
+    try {
+      this.schedulerRegistry.deleteInterval('indexer-poll');
+    } catch {
+      // Interval may not exist yet
+    }
+
+    // Register new interval
+    const callback = () => this.scheduledPoll();
+    const interval = setInterval(callback, intervalMs); this.schedulerRegistry.addInterval('indexer-poll', interval);
+
+    // Update the stored value
+    this.pollIntervalMs = intervalMs;
+  }
+
+  /**
+   * Get the current poll interval in milliseconds
+   */
+  getPollInterval(): number {
+    return this.pollIntervalMs;
   }
 
   /**
@@ -184,11 +222,18 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       // Process events
       let processedCount = 0;
       let errorCount = 0;
+      let lastSuccessfulLedger = startLedger - 1;
 
       for (const event of events) {
         try {
           const success = await this.processEvent(event);
-          if (success) processedCount++;
+          if (success) {
+            processedCount++;
+            // Track the last successfully processed ledger
+            if (event.ledger > lastSuccessfulLedger) {
+              lastSuccessfulLedger = event.ledger;
+            }
+          }
         } catch (error) {
           errorCount++;
           this.logger.error(`Failed to process event ${event.id}: ${error.message}`);
@@ -202,11 +247,14 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Update cursor to latest processed ledger
-      await this.ledgerTracker.updateCursor(latestLedger);
+      // Only advance cursor to the last successfully processed ledger
+      // Never skip past ledgers with unprocessed/errored events
+      if (lastSuccessfulLedger > ((await this.ledgerTracker.getLastCursor())?.lastLedgerSeq ?? 0)) {
+        await this.ledgerTracker.updateCursor(lastSuccessfulLedger);
+      }
 
       // Log progress
-      await this.ledgerTracker.logProgress(latestLedger, latestLedger, processedCount);
+      await this.ledgerTracker.logProgress(lastSuccessfulLedger, latestLedger, processedCount);
 
       this.logger.log(`Processed ${processedCount}/${events.length} events (${errorCount} errors)`);
     } catch (error) {

@@ -26,7 +26,7 @@ import { UserParamsDto } from './dto/user-params.dto';
 import { WalletAddressDto } from './dto/wallet-address.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { sanitizeObject } from '../common/utils/sanitization.util';
-import { User } from '@prisma/client';
+import { SerializationTransformer } from '../common/utils/serialization.util';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -98,8 +98,8 @@ export class UserController {
     };
   }
 
-  private mapUserResponse(user: User) {
-    return {
+  private mapUserResponse(user: any) {
+    return SerializationTransformer.transform({
       id: user.id,
       walletAddress: user.walletAddress,
       reputationScore: user.reputationScore,
@@ -108,7 +108,7 @@ export class UserController {
       profileData: user.profileData ? sanitizeObject(user.profileData) : null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-    };
+    });
   }
 }
 
