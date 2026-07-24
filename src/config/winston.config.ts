@@ -1,11 +1,13 @@
 import * as winston from 'winston';
 import 'winston-daily-rotate-file';
+import { redactFormat } from '../common/utils/log-redaction.util';
 
 export const winstonConfig = {
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.errors({ stack: true }),
+    redactFormat(),
     process.env.NODE_ENV === 'production'
       ? winston.format.json()
       : winston.format.combine(
@@ -15,12 +17,13 @@ export const winstonConfig = {
   ),
   transports: [
     new winston.transports.Console({
-      format: process.env.NODE_ENV === 'production'
-        ? winston.format.json()
-        : winston.format.combine(
-            winston.format.colorize(),
-            winston.format.simple(),
-          ),
+      format:
+        process.env.NODE_ENV === 'production'
+          ? winston.format.json()
+          : winston.format.combine(
+              winston.format.colorize(),
+              winston.format.simple(),
+            ),
     }),
     new winston.transports.DailyRotateFile({
       filename: 'logs/app-%DATE%.log',
