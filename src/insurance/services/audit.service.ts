@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { AuditAction } from '../enums/audit-action.enum';
 import { PrismaService } from '../../prisma.service';
 import { redactValue } from '../../common/utils/log-redaction.util';
+import { getCorrelationId } from '../../common/tracing/tracing-context';
 
 type AuditState = Prisma.InputJsonValue | null;
 
@@ -55,6 +56,7 @@ export class AuditService {
         userAgent: this.getUserAgent(),
         transactionHash,
         reason,
+        correlationId: getCorrelationId(),
         timestamp: new Date(),
       },
     });

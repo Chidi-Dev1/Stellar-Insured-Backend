@@ -2,8 +2,10 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Process, Processor } from '@nestjs/bull';
 import * as sgMail from '@sendgrid/mail';
 import { Job } from 'bull';
+import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../../prisma.service';
 import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
+import { runWithTracingContext } from '../../common/tracing/tracing-context';
 
 import { ConfigService } from '@nestjs/config';
 
@@ -39,6 +41,13 @@ export class EmailService {
    */
   @Process()
   async handleEmailJob(job: Job<EmailJobData>): Promise<void> {
+    return runWithTracingContext(
+      { correlationId: job.data.correlationId ?? uuidv4() },
+      () => this.processEmailJob(job),
+    );
+  }
+
+  private async processEmailJob(job: Job<EmailJobData>): Promise<void> {
     const { outboxId, to, subject, html } = job.data;
 
     if (!this.isValidEmail(to)) {

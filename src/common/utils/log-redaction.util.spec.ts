@@ -133,6 +133,34 @@ describe('log-redaction.util', () => {
       expect(result[1].authorization).toBe(REDACTED);
     });
 
+    it('preserves structured tracing identifiers even though they are UUID-shaped', () => {
+      const input = {
+        correlationId: 'c4d7e8f0-1234-5678-90ab-cdef12345678',
+        userId: 'a1b2c3d4-1234-5678-90ab-cdef12345678',
+        entityId: 'e1e2e3e4-1234-5678-90ab-cdef12345678',
+        eventId: 'f1f2f3f4-1234-5678-90ab-cdef12345678',
+        requestId: 'aaaaaaaa-1234-5678-90ab-cdef12345678',
+      };
+
+      const result = redactValue(input) as Record<string, unknown>;
+
+      expect(result.correlationId).toBe(input.correlationId);
+      expect(result.userId).toBe(input.userId);
+      expect(result.entityId).toBe(input.entityId);
+      expect(result.eventId).toBe(input.eventId);
+      expect(result.requestId).toBe(input.requestId);
+    });
+
+    it('still redacts UUIDs embedded in free-text message strings', () => {
+      const uuid = 'c4d7e8f0-1234-5678-90ab-cdef12345678';
+      const input = { message: `Claim ${uuid} approved` };
+
+      const result = redactValue(input) as Record<string, unknown>;
+
+      expect(result.message).not.toContain(uuid);
+      expect(result.message).toContain(REDACTED_UUID);
+    });
+
     it('preserves non-sensitive strings', () => {
       const input = 'Hello world, nothing sensitive here';
       expect(redactValue(input)).toBe(input);
@@ -182,6 +210,26 @@ describe('log-redaction.util', () => {
   });
 
   describe('redactLogInfo', () => {
+    it('preserves winston\'s internal Symbol-keyed properties (LEVEL/MESSAGE/SPLAT)', () => {
+      // Regression test: redactValue rebuilds the object via Object.entries,
+      // which only sees string-keyed properties. Winston's TransportStream
+      // gates every write on `info[LEVEL]` (a Symbol from `triple-beam`) —
+      // losing it silently drops the entry in every transport (Console,
+      // DailyRotateFile, ...) with no error. See redactLogInfo's re-attach
+      // step, added specifically to prevent this.
+      const { LEVEL, MESSAGE, SPLAT } = require('triple-beam');
+      const info = { level: 'info', message: 'hello' } as winston.Logform.TransformableInfo;
+      (info as Record<symbol, unknown>)[LEVEL] = 'info';
+      (info as Record<symbol, unknown>)[MESSAGE] = 'hello';
+      (info as Record<symbol, unknown>)[SPLAT] = ['a'];
+
+      const result = redactLogInfo(info) as Record<symbol, unknown>;
+
+      expect(result[LEVEL]).toBe('info');
+      expect(result[MESSAGE]).toBe('hello');
+      expect(result[SPLAT]).toEqual(['a']);
+    });
+
     it('returns transformed winston info object', () => {
       const info = {
         level: 'info',
