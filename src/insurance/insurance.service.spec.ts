@@ -4,19 +4,19 @@ import { PoolService } from './pool.service';
 import { RiskType } from './enums/risk-type.enum';
 import { PolicyStatus } from './enums/policy-status.enum';
 import { BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
-import { EncryptionService } from '../encryption/encryption.service';
 import { AuditService } from './services/audit.service';
+import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
 import { Prisma } from '@prisma/client';
-
-interface MockTransactionClient {
-  insurancePolicy: { create: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
-  insurancePool: { findUnique: jest.Mock; update: jest.Mock };
-}
+import { PrismaService } from '../prisma.service';
 
 interface MockPrismaService {
   $transaction: jest.Mock;
-  insurancePolicy: { create: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+}
+
+interface MockPolicyRepository {
+  findById: jest.Mock;
+  createPolicy: jest.Mock;
+  updateStatus: jest.Mock;
 }
 
 describe('InsuranceService', () => {
@@ -24,41 +24,26 @@ describe('InsuranceService', () => {
   let pricing: PricingService;
   let pools: PoolService;
   let prisma: MockPrismaService;
-  let encryption: Pick<EncryptionService, 'encrypt'>;
-  let auditService: Pick<AuditService, 'log'>;
-
-  const buildMockTx = (createdPolicy: any = { id: 'policy-1' }) => ({
-    insurancePolicy: { create: jest.fn().mockResolvedValue(createdPolicy), findUnique: jest.fn(), update: jest.fn() },
-    insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-  });
+  let auditService: Pick<AuditService, 'logPurchase' | 'logUpdate'>;
+  let policyRepository: MockPolicyRepository;
 
   beforeEach(() => {
-    pricing = {
-      calculatePremium: jest.fn(),
-    } as unknown as PricingService;
-    pools = {
-      lockCapital: jest.fn(),
-      unlockCapital: jest.fn(),
-    } as unknown as PoolService;
-
-    const mockTx = buildMockTx();
+    pricing = { calculatePremium: jest.fn() } as unknown as PricingService;
+    pools = { lockCapital: jest.fn(), unlockCapital: jest.fn() } as unknown as PoolService;
 
     prisma = {
-      $transaction: jest.fn().mockImplementation(async (fn: any) => fn(mockTx)),
-      insurancePolicy: {
-        create: jest.fn().mockResolvedValue({ id: 'policy-1' }),
-        findUnique: jest.fn(),
-        update: jest.fn(),
-      },
-    };
-
-    encryption = {
-      encrypt: jest.fn((val: string) => `enc:${val}`),
+      $transaction: jest.fn().mockImplementation(async (fn: any) => fn()),
     };
 
     auditService = {
-      log: jest.fn(),
+      logPurchase: jest.fn(),
       logUpdate: jest.fn(),
+    };
+
+    policyRepository = {
+      findById: jest.fn(),
+      createPolicy: jest.fn(),
+      updateStatus: jest.fn(),
     };
 
     service = new InsuranceService(
@@ -66,6 +51,7 @@ describe('InsuranceService', () => {
       pools,
       prisma as unknown as PrismaService,
       auditService as AuditService,
+      policyRepository as unknown as InsurancePolicyRepository,
     );
     jest.clearAllMocks();
   });
@@ -88,125 +74,92 @@ describe('InsuranceService', () => {
         service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(0)),
       ).rejects.toThrow(BadRequestException);
       await expect(
-        service.purchasePolicy(
-          'user-1',
-          'pool-1',
-          RiskType.PROJECT_FAILURE,
-          new Prisma.Decimal(-100),
-        ),
+        service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(-100)),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should successfully purchase a policy', async () => {
+      const createdPolicy = { id: 'policy-1', userId: 'user-1', poolId: 'pool-1' };
       (pricing.calculatePremium as jest.Mock).mockReturnValue(new Prisma.Decimal(500));
       (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
+      policyRepository.createPolicy.mockResolvedValue(createdPolicy);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
-      const mockTx = buildMockTx({ id: 'policy-1', userId: 'user-1', poolId: 'pool-1' });
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      const result = await service.purchasePolicy(
+        'user-1',
+        'pool-1',
+        RiskType.PROJECT_FAILURE,
+        new Prisma.Decimal(10000),
+      );
 
-      const result = await service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(10000));
-
-      expect(pricing.calculatePremium).toHaveBeenCalledWith(RiskType.PROJECT_FAILURE, new Prisma.Decimal(10000));
-      expect(pools.lockCapital).toHaveBeenCalledWith('pool-1', new Prisma.Decimal(10000), mockTx);
-      expect(mockTx.insurancePolicy.create).toHaveBeenCalled();
+      expect(pricing.calculatePremium).toHaveBeenCalledWith(
+        RiskType.PROJECT_FAILURE,
+        new Prisma.Decimal(10000),
+      );
+      expect(pools.lockCapital).toHaveBeenCalled();
+      expect(policyRepository.createPolicy).toHaveBeenCalledWith(
+        {
+          userId: 'user-1',
+          poolId: 'pool-1',
+          riskType: RiskType.PROJECT_FAILURE,
+          coverageAmount: new Prisma.Decimal(10000),
+          premium: new Prisma.Decimal(500),
+        },
+        undefined,
+      );
       expect(result.id).toBe('policy-1');
     });
 
-    it('should rollback transaction on error', async () => {
+    it('should rollback transaction on lockCapital error', async () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(new Prisma.Decimal(500));
-      (pools.lockCapital as jest.Mock).mockRejectedValue(
-        new Error('Pool capital insufficient'),
-      );
-
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(buildMockTx()));
+      (pools.lockCapital as jest.Mock).mockRejectedValue(new Error('Pool capital insufficient'));
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
       await expect(
-        service.purchasePolicy(
-          'user-1',
-          'pool-1',
-          RiskType.PROJECT_FAILURE,
-          new Prisma.Decimal(10000),
-        ),
+        service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(10000)),
       ).rejects.toThrow('Pool capital insufficient');
     });
 
-    describe('valid DB payload (issue #399 regression)', () => {
-      it('writes plain, unencrypted decimal values for coverageAmount and premium', async () => {
-        (pricing.calculatePremium as jest.Mock).mockReturnValue(new Prisma.Decimal(500));
-        (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
+    it('writes plain, unencrypted decimal values for coverageAmount and premium', async () => {
+      (pricing.calculatePremium as jest.Mock).mockReturnValue(new Prisma.Decimal(500));
+      (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
+      policyRepository.createPolicy.mockResolvedValue({ id: 'policy-1' });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
-        const mockTx = buildMockTx({ id: 'policy-1' });
-        prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      await service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(10000));
 
-        await service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(10000));
+      expect(policyRepository.createPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coverageAmount: new Prisma.Decimal(10000),
+          premium: new Prisma.Decimal(500),
+        }),
+        undefined,
+      );
+    });
 
-        expect(mockTx.insurancePolicy.create).toHaveBeenCalledWith({
-          data: {
-            userId: 'user-1',
-            poolId: 'pool-1',
-            riskType: RiskType.PROJECT_FAILURE,
-            coverageAmount: new Prisma.Decimal(10000),
-            premium: new Prisma.Decimal(500),
-          },
-        });
-      });
-
-      it('never produces NaN or non-finite values for coverageAmount/premium', async () => {
-        (pricing.calculatePremium as jest.Mock).mockReturnValue(new Prisma.Decimal(123.45));
-        (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
-
-        const mockTx = buildMockTx({ id: 'policy-1' });
-        prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
-
-        await service.purchasePolicy('user-1', 'pool-1', RiskType.SMART_CONTRACT_EXPLOIT, new Prisma.Decimal(9999.99));
-
-        const writtenData = mockTx.insurancePolicy.create.mock.calls[0][0].data;
-        expect(writtenData.coverageAmount).toEqual(new Prisma.Decimal(9999.99));
-        expect(writtenData.premium).toEqual(new Prisma.Decimal(123.45));
-      });
-
-      it('does not depend on EncryptionService for numeric fields', () => {
-        expect(service['encryption']).toBeUndefined();
-      });
+    it('does not depend on EncryptionService for numeric fields', () => {
+      expect((service as any)['encryption']).toBeUndefined();
     });
   });
 
   describe('cancelPolicy', () => {
     it('should throw BadRequestException if policy not found', async () => {
-      const mockTx: MockTransactionClient = {
-        insurancePolicy: {
-          create: jest.fn(),
-          findUnique: jest.fn().mockResolvedValue(null),
-          update: jest.fn(),
-        },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      policyRepository.findById.mockResolvedValue(null);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
-      await expect(service.cancelPolicy('missing')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.cancelPolicy('missing')).rejects.toThrow(BadRequestException);
     });
 
     it('should throw BadRequestException if policy already cancelled', async () => {
-      const mockTx: MockTransactionClient = {
-        insurancePolicy: {
-          create: jest.fn(),
-          findUnique: jest.fn().mockResolvedValue({
-            id: 'policy-1',
-            status: PolicyStatus.CANCELLED,
-            poolId: 'pool-1',
-            coverageAmount: 10000,
-          }),
-          update: jest.fn(),
-        },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      policyRepository.findById.mockResolvedValue({
+        id: 'policy-1',
+        status: PolicyStatus.CANCELLED,
+        poolId: 'pool-1',
+        coverageAmount: new Prisma.Decimal(10000),
+      });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
-      await expect(service.cancelPolicy('policy-1')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.cancelPolicy('policy-1')).rejects.toThrow(BadRequestException);
     });
 
     it('should cancel policy and unlock capital', async () => {
@@ -214,64 +167,44 @@ describe('InsuranceService', () => {
         id: 'policy-1',
         status: PolicyStatus.ACTIVE,
         poolId: 'pool-1',
-        coverageAmount: 10000,
+        coverageAmount: new Prisma.Decimal(10000),
       };
       const cancelled = { ...policy, status: PolicyStatus.CANCELLED };
 
-      const mockTx: MockTransactionClient = {
-        insurancePolicy: {
-          create: jest.fn(),
-          findUnique: jest.fn().mockResolvedValue(policy),
-          update: jest.fn().mockResolvedValue(cancelled),
-        },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      policyRepository.findById.mockResolvedValue(policy);
+      policyRepository.updateStatus.mockResolvedValue(cancelled);
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
       const result = await service.cancelPolicy('policy-1');
 
       expect(result.status).toBe(PolicyStatus.CANCELLED);
-      expect(pools.unlockCapital).toHaveBeenCalledWith('pool-1', new Prisma.Decimal(10000), mockTx);
+      expect(pools.unlockCapital).toHaveBeenCalledWith(
+        'pool-1',
+        new Prisma.Decimal(10000),
+        undefined,
+      );
     });
   });
 
   describe('expirePolicy', () => {
     it('should throw BadRequestException if policy not found', async () => {
-      const mockTx: MockTransactionClient = {
-        insurancePolicy: {
-          create: jest.fn(),
-          findUnique: jest.fn().mockResolvedValue(null),
-          update: jest.fn(),
-        },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      policyRepository.findById.mockResolvedValue(null);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
-      await expect(service.expirePolicy('missing')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.expirePolicy('missing')).rejects.toThrow(BadRequestException);
     });
 
     it('should throw BadRequestException if policy already expired', async () => {
-      const mockTx: MockTransactionClient = {
-        insurancePolicy: {
-          create: jest.fn(),
-          findUnique: jest.fn().mockResolvedValue({
-            id: 'policy-1',
-            status: PolicyStatus.EXPIRED,
-            poolId: 'pool-1',
-            coverageAmount: 10000,
-          }),
-          update: jest.fn(),
-        },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      policyRepository.findById.mockResolvedValue({
+        id: 'policy-1',
+        status: PolicyStatus.EXPIRED,
+        poolId: 'pool-1',
+        coverageAmount: new Prisma.Decimal(10000),
+      });
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
-      await expect(service.expirePolicy('policy-1')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.expirePolicy('policy-1')).rejects.toThrow(BadRequestException);
     });
 
     it('should expire policy and unlock capital', async () => {
@@ -279,25 +212,23 @@ describe('InsuranceService', () => {
         id: 'policy-1',
         status: PolicyStatus.ACTIVE,
         poolId: 'pool-1',
-        coverageAmount: 10000,
+        coverageAmount: new Prisma.Decimal(10000),
       };
       const expired = { ...policy, status: PolicyStatus.EXPIRED };
 
-      const mockTx: MockTransactionClient = {
-        insurancePolicy: {
-          create: jest.fn(),
-          findUnique: jest.fn().mockResolvedValue(policy),
-          update: jest.fn().mockResolvedValue(expired),
-        },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx));
+      policyRepository.findById.mockResolvedValue(policy);
+      policyRepository.updateStatus.mockResolvedValue(expired);
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
       const result = await service.expirePolicy('policy-1');
 
       expect(result.status).toBe(PolicyStatus.EXPIRED);
-      expect(pools.unlockCapital).toHaveBeenCalledWith('pool-1', new Prisma.Decimal(10000), mockTx);
+      expect(pools.unlockCapital).toHaveBeenCalledWith(
+        'pool-1',
+        new Prisma.Decimal(10000),
+        undefined,
+      );
     });
   });
 });

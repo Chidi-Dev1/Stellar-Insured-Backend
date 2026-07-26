@@ -3,20 +3,27 @@ import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { Prisma } from '@prisma/client';
 import * as webpush from 'web-push';
-import { PrismaService } from '../../prisma.service';
 import { EmailService } from './email.service';
 import { WebPushService } from './web-push.service';
 import { NotificationType } from '../enums/notification-type.enum';
 import { validateEnum } from '../../common/validators/enum.validator';
 import { UserService } from '../../user/user.service';
 import { QUEUE_NAMES, EmailJobData, PushJobData } from '../constants/queue.constants';
+import {
+  NotificationRepository,
+  NotificationSettingRepository,
+  EmailOutboxRepository,
+} from '../../common/repositories/notification.repository';
+import { TransactionClient } from '../../common/repositories/repository.interface';
 
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly notificationRepository: NotificationRepository,
+    private readonly notificationSettingRepository: NotificationSettingRepository,
+    private readonly emailOutboxRepository: EmailOutboxRepository,
     private readonly emailService: EmailService,
     private readonly webPushService: WebPushService,
     private readonly userService: UserService,
@@ -32,7 +39,7 @@ export class NotificationService {
     title: string,
     message: string,
     data?: Prisma.InputJsonValue,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
     validateEnum(NotificationType, type, 'NotificationType');
 
@@ -46,34 +53,23 @@ export class NotificationService {
 
     let settings = contactData.notificationSettings;
     if (!settings) {
-      const client = tx ?? this.prisma;
-      settings = await client.notificationSetting.create({
-        data: { userId },
-      });
+      settings = await this.notificationSettingRepository.upsertForUser(userId, tx);
     }
 
     if (type === 'CONTRIBUTION' && !settings.notifyContributions) return;
     if (type === 'MILESTONE' && !settings.notifyMilestones) return;
     if (type === 'DEADLINE' && !settings.notifyDeadlines) return;
 
-    const client = tx ?? this.prisma;
-    await client.notification.create({
-      data: {
-        userId,
-        type,
-        title,
-        message,
-        data,
-      },
-    });
+    await this.notificationRepository.createNotification(
+      { userId, type, title, message, data },
+      tx,
+    );
 
     if (settings.emailEnabled && contactData.email) {
       await this.enqueueEmail(contactData.email, title, `<p>${message}</p>`, tx);
     }
 
-    const pushSubscription = this.getPushSubscription(
-      contactData.pushSubscription,
-    );
+    const pushSubscription = this.getPushSubscription(contactData.pushSubscription);
     if (settings.pushEnabled && pushSubscription) {
       await this.pushQueue.add(
         { subscription: pushSubscription, payload: { title, body: message, data } },
@@ -86,12 +82,12 @@ export class NotificationService {
     to: string,
     subject: string,
     html: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    const client = tx ?? this.prisma;
-    const outbox = await client.emailOutbox.create({
-      data: { to, subject, html, status: 'PENDING' },
-    });
+    const outbox = await this.emailOutboxRepository.createOutbox(
+      { to, subject, html, status: 'PENDING' },
+      tx,
+    );
 
     await this.emailQueue.add(
       {
@@ -109,9 +105,7 @@ export class NotificationService {
     );
   }
 
-  private getPushSubscription(
-    value: Prisma.JsonValue | null,
-  ): webpush.PushSubscription | null {
+  private getPushSubscription(value: Prisma.JsonValue | null): webpush.PushSubscription | null {
     if (typeof value === 'string') {
       try {
         const parsed = JSON.parse(value) as unknown;
@@ -120,17 +114,11 @@ export class NotificationService {
         return null;
       }
     }
-
     return this.isPushSubscription(value) ? value : null;
   }
 
-  private isPushSubscription(
-    value: unknown,
-  ): value is webpush.PushSubscription {
-    if (typeof value !== 'object' || value === null) {
-      return false;
-    }
-
+  private isPushSubscription(value: unknown): value is webpush.PushSubscription {
+    if (typeof value !== 'object' || value === null) return false;
     const candidate = value as Partial<webpush.PushSubscription>;
     return typeof candidate.endpoint === 'string' && Boolean(candidate.keys);
   }

@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma.service';
 import {
   ParsedContractEvent,
   ContractEventType,
@@ -17,15 +16,23 @@ import { ReputationService } from '../../reputation/reputation.service';
 import { REPUTATION_DELTAS } from '../../reputation/reputation.constants';
 import { NotificationType } from '../../notification/enums/notification-type.enum';
 import { SerializationTransformer } from '../../common/utils/serialization.util';
+import {
+  UserRepository,
+  ProjectRepository,
+  ContributionRepository,
+  MilestoneRepository,
+} from '../../common/repositories';
 
-/**
- * Handler for PROJECT_CREATED events
- */
+// ─── ProjectCreatedHandler ────────────────────────────────────────────────────
+
 class ProjectCreatedHandler implements IEventHandler {
   readonly eventType = ContractEventType.PROJECT_CREATED;
   private readonly logger = new Logger(ProjectCreatedHandler.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly projectRepository: ProjectRepository,
+  ) {}
 
   validate(event: ParsedContractEvent): boolean {
     const data = event.data as unknown as ProjectCreatedEvent;
@@ -40,27 +47,17 @@ class ProjectCreatedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectCreatedEvent;
-
     this.logger.log(`Processing PROJECT_CREATED: Project ${data.projectId} by ${data.creator}`);
 
-    const user = await this.prisma.user.upsert({
-      where: { walletAddress: data.creator },
-      update: {},
-      create: {
-        walletAddress: data.creator,
-        reputationScore: 0,
-      },
-    });
+    const user = await this.userRepository.upsertByWallet(
+      data.creator,
+      { walletAddress: data.creator, reputationScore: 0 },
+      {},
+    );
 
-    await this.prisma.project.upsert({
-      where: { contractId: data.projectId.toString() },
-      update: {
-        title: `Project ${data.projectId}`,
-        goal: BigInt(data.fundingGoal),
-        deadline: new Date(data.deadline * 1000),
-        status: 'ACTIVE',
-      },
-      create: {
+    await this.projectRepository.upsertByContractId(
+      data.projectId.toString(),
+      {
         contractId: data.projectId.toString(),
         creatorId: user.id,
         title: `Project ${data.projectId}`,
@@ -69,21 +66,28 @@ class ProjectCreatedHandler implements IEventHandler {
         deadline: new Date(data.deadline * 1000),
         status: 'ACTIVE',
       },
-    });
+      {
+        title: `Project ${data.projectId}`,
+        goal: BigInt(data.fundingGoal),
+        deadline: new Date(data.deadline * 1000),
+        status: 'ACTIVE',
+      },
+    );
 
     this.logger.log(`Created/updated project ${data.projectId}`);
   }
 }
 
-/**
- * Handler for CONTRIBUTION_MADE events
- */
+// ─── ContributionMadeHandler ──────────────────────────────────────────────────
+
 class ContributionMadeHandler implements IEventHandler {
   readonly eventType = ContractEventType.CONTRIBUTION_MADE;
   private readonly logger = new Logger(ContributionMadeHandler.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly userRepository: UserRepository,
+    private readonly projectRepository: ProjectRepository,
+    private readonly contributionRepository: ContributionRepository,
     private readonly notificationService: NotificationService,
     private readonly reputationService: ReputationService,
   ) {}
@@ -95,46 +99,32 @@ class ContributionMadeHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ContributionMadeEvent;
-
     this.logger.log(
       `Processing CONTRIBUTION_MADE: ${data.amount} to project ${data.projectId} from ${data.contributor}`,
     );
 
-    const user = await this.prisma.user.upsert({
-      where: { walletAddress: data.contributor },
-      update: {},
-      create: {
-        walletAddress: data.contributor,
-        reputationScore: 0,
-      },
-    });
+    const user = await this.userRepository.upsertByWallet(
+      data.contributor,
+      { walletAddress: data.contributor, reputationScore: 0 },
+      {},
+    );
 
-    const project = await this.prisma.project.findUnique({
-      where: { contractId: data.projectId.toString() },
-    });
-
+    const project = await this.projectRepository.findByContractId(data.projectId.toString());
     if (!project) {
       this.logger.warn(`Project ${data.projectId} not found for contribution`);
       return;
     }
 
-    await this.prisma.contribution.upsert({
-      where: { transactionHash: event.transactionHash },
-      update: {},
-      create: {
-        transactionHash: event.transactionHash,
-        investorId: user.id,
-        projectId: project.id,
-        amount: BigInt(data.amount),
-        timestamp: event.ledgerClosedAt,
-      },
+    await this.contributionRepository.upsertByTxHash(event.transactionHash, {
+      transactionHash: event.transactionHash,
+      investorId: user.id,
+      projectId: project.id,
+      amount: BigInt(data.amount),
+      timestamp: event.ledgerClosedAt,
     });
 
-    await this.prisma.project.update({
-      where: { id: project.id },
-      data: {
-        currentFunds: BigInt(data.totalRaised),
-      },
+    await this.projectRepository.updateById(project.id, {
+      currentFunds: BigInt(data.totalRaised),
     });
 
     try {
@@ -146,10 +136,11 @@ class ContributionMadeHandler implements IEventHandler {
         { projectId: project.id, amount: data.amount },
       );
     } catch (e) {
-      this.logger.error(`Failed to send contribution notification to user ${user.id}: ${e.message}`);
+      this.logger.error(
+        `Failed to send contribution notification to user ${user.id}: ${e.message}`,
+      );
     }
 
-    // Reward the contributor's reputation for a successful on-chain contribution
     try {
       await this.reputationService.adjustReputation(
         user.id,
@@ -157,22 +148,25 @@ class ContributionMadeHandler implements IEventHandler {
         `Contribution of ${data.amount} to project ${data.projectId} recorded on-chain`,
       );
     } catch (e) {
-      this.logger.error(`Failed to adjust reputation for contribution by user ${user.id}: ${e.message}`);
+      this.logger.error(
+        `Failed to adjust reputation for contribution by user ${user.id}: ${e.message}`,
+      );
     }
 
     this.logger.log(`Recorded contribution of ${data.amount} for project ${data.projectId}`);
   }
 }
 
-/**
- * Handler for MILESTONE_APPROVED events
- */
+// ─── MilestoneApprovedHandler ─────────────────────────────────────────────────
+
 class MilestoneApprovedHandler implements IEventHandler {
   readonly eventType = ContractEventType.MILESTONE_APPROVED;
   private readonly logger = new Logger(MilestoneApprovedHandler.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly projectRepository: ProjectRepository,
+    private readonly milestoneRepository: MilestoneRepository,
+    private readonly contributionRepository: ContributionRepository,
     private readonly notificationService: NotificationService,
     private readonly reputationService: ReputationService,
   ) {}
@@ -184,56 +178,38 @@ class MilestoneApprovedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as MilestoneApprovedEvent;
-    const milestoneId = data.milestoneId;
-    const approvalCount = data.approvalCount;
-
     this.logger.log(
-      `Processing MILESTONE_APPROVED: Milestone ${milestoneId} for project ${data.projectId} (approvals: ${approvalCount})`,
+      `Processing MILESTONE_APPROVED: Milestone ${data.milestoneId} for project ${data.projectId}`,
     );
 
-    const project = await this.prisma.project.findUnique({
-      where: { contractId: data.projectId.toString() },
-    });
-
+    const project = await this.projectRepository.findByContractId(data.projectId.toString());
     if (!project) {
       this.logger.warn(`Project ${data.projectId} not found for milestone approval`);
       return;
     }
 
-    await this.prisma.milestone.updateMany({
-      where: {
-        projectId: project.id,
-      },
-      data: {
-        status: 'APPROVED',
-      },
-    });
+    await this.milestoneRepository.updateManyByProject(project.id, { status: 'APPROVED' });
 
-    const contributors = await this.prisma.contribution.findMany({
-      where: { projectId: project.id },
-      select: { investorId: true },
-      distinct: ['investorId'],
-    });
+    const contributors = await this.contributionRepository.findDistinctInvestors(project.id);
 
-    for (const contribution of contributors) {
+    for (const { investorId } of contributors) {
       try {
         await this.notificationService.notify(
-          contribution.investorId,
+          investorId,
           NotificationType.MILESTONE,
           'Project Milestone Reached!',
           `A project you back (${project.title}) has reached a new milestone!`,
           { projectId: project.id, milestoneId: data.milestoneId },
         );
       } catch (e) {
-        this.logger.error(`Failed to notify investor ${contribution.investorId} of milestone: ${e.message}`);
+        this.logger.error(
+          `Failed to notify investor ${investorId} of milestone: ${e.message}`,
+        );
       }
     }
 
-    this.logger.log(`Approved milestone for project ${data.projectId}`);
-
     if (project.creatorId) {
       await this.reputationService.updateTrustScore(project.creatorId);
-      this.logger.log(`Updated trust score for creator ${project.creatorId}`);
       try {
         await this.reputationService.adjustReputation(
           project.creatorId,
@@ -241,21 +217,24 @@ class MilestoneApprovedHandler implements IEventHandler {
           `Milestone ${data.milestoneId} approved for project ${data.projectId}`,
         );
       } catch (e) {
-        this.logger.error(`Failed to adjust reputation for milestone approval, creator ${project.creatorId}: ${e.message}`);
+        this.logger.error(
+          `Failed to adjust reputation for milestone approval, creator ${project.creatorId}: ${e.message}`,
+        );
       }
     }
   }
 }
 
-/**
- * Handler for MILESTONE_REJECTED events
- */
+// ─── MilestoneRejectedHandler ─────────────────────────────────────────────────
+
 class MilestoneRejectedHandler implements IEventHandler {
   readonly eventType = ContractEventType.MILESTONE_REJECTED;
   private readonly logger = new Logger(MilestoneRejectedHandler.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly projectRepository: ProjectRepository,
+    private readonly milestoneRepository: MilestoneRepository,
+    private readonly contributionRepository: ContributionRepository,
     private readonly notificationService: NotificationService,
     private readonly reputationService: ReputationService,
   ) {}
@@ -267,52 +246,38 @@ class MilestoneRejectedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as any;
-
     this.logger.log(
       `Processing MILESTONE_REJECTED: Milestone ${data.milestoneId} for project ${data.projectId}`,
     );
 
-    const project = await this.prisma.project.findUnique({
-      where: { contractId: data.projectId.toString() },
-    });
-
+    const project = await this.projectRepository.findByContractId(data.projectId.toString());
     if (!project) {
       this.logger.warn(`Project ${data.projectId} not found for milestone rejection`);
       return;
     }
 
-    await this.prisma.milestone.updateMany({
-      where: {
-        projectId: project.id,
-      },
-      data: {
-        status: 'REJECTED',
-      },
-    });
+    await this.milestoneRepository.updateManyByProject(project.id, { status: 'REJECTED' });
 
-    const contributors = await this.prisma.contribution.findMany({
-      where: { projectId: project.id },
-      select: { investorId: true },
-      distinct: ['investorId'],
-    });
+    const contributors = await this.contributionRepository.findDistinctInvestors(project.id);
 
-    for (const contribution of contributors) {
+    for (const { investorId } of contributors) {
       try {
         await this.notificationService.notify(
-          contribution.investorId,
+          investorId,
           NotificationType.MILESTONE,
           'Project Milestone Failed',
           `A project you back (${project.title}) has a failed milestone!`,
           { projectId: project.id, milestoneId: data.milestoneId },
         );
       } catch (e) {
-        this.logger.error(`Failed to notify investor ${contribution.investorId} of milestone: ${e.message}`);
+        this.logger.error(
+          `Failed to notify investor ${investorId} of milestone: ${e.message}`,
+        );
       }
     }
 
     if (project.creatorId) {
       await this.reputationService.updateTrustScore(project.creatorId);
-      this.logger.log(`Updated trust score for creator ${project.creatorId}`);
       try {
         await this.reputationService.adjustReputation(
           project.creatorId,
@@ -320,20 +285,24 @@ class MilestoneRejectedHandler implements IEventHandler {
           `Milestone ${data.milestoneId} rejected for project ${data.projectId}`,
         );
       } catch (e) {
-        this.logger.error(`Failed to adjust reputation for milestone rejection, creator ${project.creatorId}: ${e.message}`);
+        this.logger.error(
+          `Failed to adjust reputation for milestone rejection, creator ${project.creatorId}: ${e.message}`,
+        );
       }
     }
   }
 }
 
-/**
- * Handler for FUNDS_RELEASED events
- */
+// ─── FundsReleasedHandler ─────────────────────────────────────────────────────
+
 class FundsReleasedHandler implements IEventHandler {
   readonly eventType = ContractEventType.FUNDS_RELEASED;
   private readonly logger = new Logger(FundsReleasedHandler.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly projectRepository: ProjectRepository,
+    private readonly milestoneRepository: MilestoneRepository,
+  ) {}
 
   validate(event: ParsedContractEvent): boolean {
     const data = event.data as unknown as FundsReleasedEvent;
@@ -342,42 +311,32 @@ class FundsReleasedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as FundsReleasedEvent;
-
     this.logger.log(
       `Processing FUNDS_RELEASED: ${data.amount} for project ${data.projectId}, milestone ${data.milestoneId}`,
     );
 
-    const project = await this.prisma.project.findUnique({
-      where: { contractId: data.projectId.toString() },
-    });
-
+    const project = await this.projectRepository.findByContractId(data.projectId.toString());
     if (!project) {
       this.logger.warn(`Project ${data.projectId} not found for funds release`);
       return;
     }
 
-    await this.prisma.milestone.updateMany({
-      where: {
-        projectId: project.id,
-      },
-      data: {
-        status: 'FUNDED',
-        completionDate: event.ledgerClosedAt,
-      },
+    await this.milestoneRepository.updateManyByProject(project.id, {
+      status: 'FUNDED',
+      completionDate: event.ledgerClosedAt,
     });
 
     this.logger.log(`Released funds for project ${data.projectId}`);
   }
 }
 
-/**
- * Handler for PROJECT_COMPLETED events
- */
+// ─── ProjectCompletedHandler ──────────────────────────────────────────────────
+
 class ProjectCompletedHandler implements IEventHandler {
   readonly eventType = ContractEventType.PROJECT_COMPLETED;
   private readonly logger = new Logger(ProjectCompletedHandler.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly projectRepository: ProjectRepository) {}
 
   validate(event: ParsedContractEvent): boolean {
     const data = event.data as unknown as ProjectStatusEvent;
@@ -386,26 +345,21 @@ class ProjectCompletedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
-
     this.logger.log(`Processing PROJECT_COMPLETED: Project ${data.projectId}`);
-
-    await this.prisma.project.updateMany({
-      where: { contractId: data.projectId.toString() },
-      data: { status: 'COMPLETED' },
+    await this.projectRepository.updateManyByContractId(data.projectId.toString(), {
+      status: 'COMPLETED',
     });
-
     this.logger.log(`Marked project ${data.projectId} as completed`);
   }
 }
 
-/**
- * Handler for PROJECT_FAILED events
- */
+// ─── ProjectFailedHandler ─────────────────────────────────────────────────────
+
 class ProjectFailedHandler implements IEventHandler {
   readonly eventType = ContractEventType.PROJECT_FAILED;
   private readonly logger = new Logger(ProjectFailedHandler.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly projectRepository: ProjectRepository) {}
 
   validate(event: ParsedContractEvent): boolean {
     const data = event.data as unknown as ProjectStatusEvent;
@@ -414,29 +368,22 @@ class ProjectFailedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
-
     this.logger.log(`Processing PROJECT_FAILED: Project ${data.projectId}`);
-
-    await this.prisma.project.updateMany({
-      where: { contractId: data.projectId.toString() },
-      data: { status: 'CANCELLED' },
+    await this.projectRepository.updateManyByContractId(data.projectId.toString(), {
+      status: 'CANCELLED',
     });
-
     this.logger.log(`Marked project ${data.projectId} as failed/cancelled`);
   }
 }
 
-/**
- * Handler for DIVIDEND_CLAIMED (profit/claim) events.
- * Reacts to decoded claim events by crediting the claimer's reputation,
- * reflecting real on-chain claim activity in the domain layer.
- */
+// ─── DividendClaimedHandler ───────────────────────────────────────────────────
+
 class DividendClaimedHandler implements IEventHandler {
   readonly eventType = ContractEventType.DIVIDEND_CLAIMED;
   private readonly logger = new Logger(DividendClaimedHandler.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly userRepository: UserRepository,
     private readonly reputationService: ReputationService,
   ) {}
 
@@ -447,37 +394,33 @@ class DividendClaimedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as DividendClaimedEvent;
-
     this.logger.log(
       `Processing DIVIDEND_CLAIMED: ${data.amount} from pool ${data.poolId} claimed by ${data.claimer}`,
     );
 
-    const user = await this.prisma.user.upsert({
-      where: { walletAddress: data.claimer },
-      update: {},
-      create: {
-        walletAddress: data.claimer,
-        reputationScore: 0,
-      },
-    });
+    const user = await this.userRepository.upsertByWallet(
+      data.claimer,
+      { walletAddress: data.claimer, reputationScore: 0 },
+      {},
+    );
 
-    // Reflect the on-chain claim in the user's reputation/trust score.
     await this.reputationService.updateTrustScore(user.id);
-
     this.logger.log(`Updated trust score for claimer ${user.id}`);
   }
 }
 
-/**
- * Service that manages event handlers and routes events to appropriate handlers
- */
+// ─── EventHandlerService ──────────────────────────────────────────────────────
+
 @Injectable()
 export class EventHandlerService implements IEventHandlerRegistry {
   private readonly logger = new Logger(EventHandlerService.name);
   private readonly handlers = new Map<string, IEventHandler>();
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly userRepository: UserRepository,
+    private readonly projectRepository: ProjectRepository,
+    private readonly contributionRepository: ContributionRepository,
+    private readonly milestoneRepository: MilestoneRepository,
     private readonly notificationService: NotificationService,
     private readonly reputationService: ReputationService,
   ) {
@@ -485,16 +428,40 @@ export class EventHandlerService implements IEventHandlerRegistry {
   }
 
   private registerHandlers(): void {
-    this.register(new ProjectCreatedHandler(this.prisma));
-    this.register(new ContributionMadeHandler(this.prisma, this.notificationService, this.reputationService));
-    this.register(new MilestoneApprovedHandler(this.prisma, this.notificationService, this.reputationService));
-    this.register(new MilestoneRejectedHandler(this.prisma, this.notificationService, this.reputationService));
-    this.register(new FundsReleasedHandler(this.prisma));
-    this.register(new ProjectCompletedHandler(this.prisma));
-    this.register(new ProjectFailedHandler(this.prisma));
     this.register(
-      new DividendClaimedHandler(this.prisma, this.reputationService),
+      new ProjectCreatedHandler(this.userRepository, this.projectRepository),
     );
+    this.register(
+      new ContributionMadeHandler(
+        this.userRepository,
+        this.projectRepository,
+        this.contributionRepository,
+        this.notificationService,
+        this.reputationService,
+      ),
+    );
+    this.register(
+      new MilestoneApprovedHandler(
+        this.projectRepository,
+        this.milestoneRepository,
+        this.contributionRepository,
+        this.notificationService,
+        this.reputationService,
+      ),
+    );
+    this.register(
+      new MilestoneRejectedHandler(
+        this.projectRepository,
+        this.milestoneRepository,
+        this.contributionRepository,
+        this.notificationService,
+        this.reputationService,
+      ),
+    );
+    this.register(new FundsReleasedHandler(this.projectRepository, this.milestoneRepository));
+    this.register(new ProjectCompletedHandler(this.projectRepository));
+    this.register(new ProjectFailedHandler(this.projectRepository));
+    this.register(new DividendClaimedHandler(this.userRepository, this.reputationService));
 
     this.logger.log(`Registered ${this.handlers.size} event handlers`);
   }
@@ -514,7 +481,6 @@ export class EventHandlerService implements IEventHandlerRegistry {
 
   async processEvent(event: ParsedContractEvent): Promise<boolean> {
     const handler = this.getHandler(event.eventType);
-
     if (!handler) {
       this.logger.debug(`No handler registered for event type: ${event.eventType}`);
       return false;
@@ -525,7 +491,6 @@ export class EventHandlerService implements IEventHandlerRegistry {
         this.logger.warn(`Event validation failed for ${event.eventType}`);
         return false;
       }
-
       await handler.handle(event);
       return true;
     } catch (error) {
