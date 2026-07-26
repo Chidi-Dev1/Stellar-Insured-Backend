@@ -1,5 +1,6 @@
 import * as winston from 'winston';
 import 'winston-daily-rotate-file';
+import { redactFormat } from '../common/utils/log-redaction.util';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const logDir = process.env.LOG_DIR || 'logs';
@@ -20,6 +21,24 @@ export const winstonConfig: winston.LoggerOptions = {
   ),
   transports: [
     new winston.transports.Console({ format: consoleFormat }),
+    redactFormat(),
+    process.env.NODE_ENV === 'production'
+      ? winston.format.json()
+      : winston.format.combine(
+          winston.format.colorize(),
+          winston.format.simple(),
+        ),
+  ),
+  transports: [
+    new winston.transports.Console({
+      format:
+        process.env.NODE_ENV === 'production'
+          ? winston.format.json()
+          : winston.format.combine(
+              winston.format.colorize(),
+              winston.format.simple(),
+            ),
+    }),
     new winston.transports.DailyRotateFile({
       dirname: logDir,
       filename: 'app-%DATE%.log',
