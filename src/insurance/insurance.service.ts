@@ -35,6 +35,21 @@ export class InsuranceService {
 
     try {
       return await this.prisma.$transaction(async tx => {
+        // Check if user already has an active policy for this pool to prevent duplicates (idempotent operation)
+        const existingPolicy = await tx.insurancePolicy.findFirst({
+          where: {
+            userId,
+            poolId,
+            status: {
+              in: [PolicyStatus.ACTIVE, PolicyStatus.PENDING],
+            },
+          },
+        });
+
+        if (existingPolicy) {
+          return existingPolicy;
+        }
+
         const premium = this.pricing.calculatePremium(riskType, coverageAmount);
 
         await this.pools.lockCapital(poolId, coverageAmount, tx);
@@ -70,8 +85,9 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
+      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
-        throw new BadRequestException('Policy is already inactive');
+        return policy;
       }
       const beforeState = { ...policy };
       const updated = await tx.insurancePolicy.update({
@@ -93,8 +109,9 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
+      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
-        throw new BadRequestException('Policy is already inactive');
+        return policy;
       }
       const beforeState = { ...policy };
       const updated = await tx.insurancePolicy.update({

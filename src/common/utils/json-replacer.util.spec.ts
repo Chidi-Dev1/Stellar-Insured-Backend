@@ -2,7 +2,7 @@ import { jsonReplacer } from './json-replacer.util';
 
 describe('jsonReplacer', () => {
   it('should convert BigInt to string', () => {
-    const bigIntValue = BigInt(12345678901234567890);
+    const bigIntValue = BigInt('12345678901234567890');
     const result = jsonReplacer('', bigIntValue);
     expect(result).toBe('12345678901234567890');
     expect(typeof result).toBe('string');

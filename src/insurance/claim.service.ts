@@ -44,6 +44,11 @@ export class ClaimService {
       throw new NotFoundException(`Policy for claim ${claimId} not found`);
     }
 
+    // If claim is already assessed (approved/rejected/paid), return it without performing any mutations (idempotent operation)
+    if (claim.status !== ClaimStatus.PENDING) {
+      return claim as ClaimWithPolicy;
+    }
+
     const beforeState = { ...claim };
 
     if (policy.status !== PolicyStatus.ACTIVE) {
@@ -300,6 +305,10 @@ export class ClaimService {
       })) as ClaimWithPolicy | null;
       if (!claim) {
         throw new NotFoundException(`Claim with ID ${claimId} not found`);
+      }
+      // If claim is already paid, return it without performing any mutations (idempotent operation)
+      if (claim.status === ClaimStatus.PAID) {
+        return claim as ClaimWithPolicy;
       }
       const beforeState = { ...claim };
       const updatedClaim = (await tx.claim.update({

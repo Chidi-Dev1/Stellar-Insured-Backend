@@ -32,6 +32,7 @@ import { PrismaHealthIndicator } from './common/health/prisma.health';
 // ← NEW: global exception filter for standardised error responses
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseTransformInterceptor } from './common/interceptors/response.interceptor';
+import { IdempotencyCleanupTask } from './interceptors/tasks/idempotency-cleanup.task';
 
 @Module({
   imports: [
@@ -94,6 +95,9 @@ import { ResponseTransformInterceptor } from './common/interceptors/response.int
       useClass: JwtAuthGuard,
     },
 
+    // Idempotency cleanup task - removes stale keys daily
+    IdempotencyCleanupTask,
+    
     // Global exception filter — all thrown exceptions return ErrorResponseDto.
     // This replaces the four inconsistent error formats previously in the codebase.
     {
