@@ -6,15 +6,16 @@ import { PrismaService } from '../../prisma.service';
 import { NotificationType } from '../enums/notification-type.enum';
 
 interface MockPrismaService {
-  user: {
-    findFirst: jest.Mock;
-  };
   notification: {
     create: jest.Mock;
   };
   emailOutbox: {
     create: jest.Mock;
   };
+}
+
+interface MockUserService {
+  getDecryptedContact: jest.Mock;
 }
 
 interface MockEmailService {
@@ -34,6 +35,7 @@ describe('NotificationService', () => {
   let prisma: MockPrismaService;
   let emailService: MockEmailService;
   let webPushService: MockWebPushService;
+  let userService: MockUserService;
   let emailQueue: MockQueue;
   let pushQueue: MockQueue;
 
@@ -55,6 +57,9 @@ describe('NotificationService', () => {
     webPushService = {
       sendNotification: jest.fn(),
     };
+    userService = {
+      getDecryptedContact: jest.fn(),
+    };
     emailQueue = { add: jest.fn() };
     pushQueue = { add: jest.fn() };
 
@@ -62,6 +67,7 @@ describe('NotificationService', () => {
       prisma as unknown as PrismaService,
       emailService as unknown as EmailService,
       webPushService as unknown as WebPushService,
+      userService as unknown as any,
       emailQueue as unknown as MockQueue,
       pushQueue as unknown as MockQueue,
     );
@@ -77,7 +83,7 @@ describe('NotificationService', () => {
       },
     };
 
-    prisma.user.findFirst.mockResolvedValue({
+    userService.getDecryptedContact.mockResolvedValue({
       id: 'user-1',
       email: 'person@example.com',
       pushSubscription,
