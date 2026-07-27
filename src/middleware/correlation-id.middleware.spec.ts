@@ -40,9 +40,22 @@ describe('correlationIdHandler', () => {
     expect(getCorrelationId()).toBeUndefined();
   });
 
-  it('reuses an inbound x-correlation-id header instead of minting a new one', () => {
+  it('reuses an inbound x-correlation-id header when it is a valid UUID', () => {
+    const inboundId = '11111111-2222-4333-8444-555555555555';
+    const { req, res } = createMockReqRes({ 'x-correlation-id': inboundId });
+    let observed: string | undefined;
+
+    correlationIdHandler(req, res, () => {
+      observed = getCorrelationId();
+    });
+
+    expect(observed).toBe(inboundId);
+    expect(res.setHeader).toHaveBeenCalledWith('x-correlation-id', inboundId);
+  });
+
+  it('mints a fresh correlation ID when the inbound header is not a valid UUID', () => {
     const { req, res } = createMockReqRes({
-      'x-correlation-id': 'client-supplied-id',
+      'x-correlation-id': 'not-a-uuid',
     });
     let observed: string | undefined;
 
@@ -50,11 +63,8 @@ describe('correlationIdHandler', () => {
       observed = getCorrelationId();
     });
 
-    expect(observed).toBe('client-supplied-id');
-    expect(res.setHeader).toHaveBeenCalledWith(
-      'x-correlation-id',
-      'client-supplied-id',
-    );
+    expect(observed).toBeDefined();
+    expect(observed).not.toBe('not-a-uuid');
   });
 
   it('keeps the scope open across an async continuation started inside next()', async () => {

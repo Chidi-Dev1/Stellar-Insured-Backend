@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { rpc as SorobanRpc } from 'stellar-sdk';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma.service';
 import { LedgerTrackerService } from './ledger-tracker.service';
 import { EventHandlerService } from './event-handler.service';
@@ -377,7 +377,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
    */
   private async processEvent(event: SorobanEvent): Promise<boolean> {
     return runWithTracingContext(
-      { correlationId: uuidv4(), eventId: event.id },
+      { correlationId: randomUUID(), eventId: event.id },
       () => this.processEventInternal(event),
     );
   }
