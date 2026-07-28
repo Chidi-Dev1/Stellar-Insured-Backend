@@ -29,6 +29,11 @@ export class ReinsuranceService {
       if (!existing) {
         throw new BadRequestException(`Reinsurance contract ${contractId} not found`);
       }
+      // If contract is already released (deleted), check if it's already been processed (idempotent operation)
+      // Since we're using soft delete, if deletedAt is not null, the contract is already released
+      if (existing.deletedAt) {
+        return existing;
+      }
       const beforeState = { ...existing };
       const released = await this.reinsuranceRepository.deleteContract(contractId, tx);
       await this.auditService.logDelete(

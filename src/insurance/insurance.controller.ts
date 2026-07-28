@@ -1,13 +1,13 @@
-import { Controller, Post, Param, Body, UseInterceptors, Get } from '@nestjs/common';
+import { Controller, Post, Param, Body, UseInterceptors } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { InsuranceService } from './insurance.service';
 import { ClaimService } from './claim.service';
 import { ReinsuranceService } from './reinsurance.service';
 import { PurchasePolicyDto } from './dto/purchase-policy.dto';
+import { CreateClaimDto } from './dto/create-claim.dto';
 import { CreateReinsuranceDto } from './dto/create-reinsurance.dto';
 import { IdempotencyInterceptor } from '../interceptors/idempotency.interceptor';
 import { SerializationTransformer } from '../common/utils/serialization.util';
-import { InsurancePolicyDto } from '../common/dto/insurance.dto';
 
 @SkipThrottle({ auth: true })
 @Controller({ path: 'insurance', version: '1' })
@@ -24,6 +24,14 @@ export class InsuranceController {
   async purchase(@Body() body: PurchasePolicyDto) {
     const policy = await this.insurance.purchasePolicy(body.userId, body.poolId, body.riskType, body.coverageAmount);
     return SerializationTransformer.transform(policy);
+  }
+
+  @Throttle({ default: { limit: 30, ttl: 3600000 } }) // 30 claim creations per hour
+  @Post('claims')
+  @UseInterceptors(IdempotencyInterceptor)
+  async createClaim(@Body() body: CreateClaimDto) {
+    const claim = await this.claims.createClaim(body.policyId, body.claimAmount);
+    return SerializationTransformer.transform(claim);
   }
 
   @Throttle({ default: { limit: 50, ttl: 3600000 } }) // 50 claim assessments per hour
@@ -51,5 +59,31 @@ export class InsuranceController {
   async createReinsurance(@Body() body: CreateReinsuranceDto) {
     const contract = await this.reinsurance.createContract(body.poolId, body.coverageLimit, body.premiumRate);
     return SerializationTransformer.transform(contract);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 3600000 } }) // 5 contract releases per hour
+  @Post('reinsurance/:contractId/release')
+  @Throttle({ admin: { limit: 20, ttl: 60000 } }) // 20 releases per minute for admins
+  @UseInterceptors(IdempotencyInterceptor)
+  async releaseReinsurance(@Param('contractId') contractId: string) {
+    const contract = await this.reinsurance.releaseContract(contractId);
+    return SerializationTransformer.transform(contract);
+  }
+
+  @Throttle({ default: { limit: 20, ttl: 3600000 } }) // 20 policy cancellations per hour
+  @Post('policies/:policyId/cancel')
+  @UseInterceptors(IdempotencyInterceptor)
+  async cancelPolicy(@Param('policyId') policyId: string) {
+    const policy = await this.insurance.cancelPolicy(policyId);
+    return SerializationTransformer.transform(policy);
+  }
+
+  @Throttle({ default: { limit: 20, ttl: 3600000 } }) // 20 policy expirations per hour
+  @Post('policies/:policyId/expire')
+  @Throttle({ admin: { limit: 50, ttl: 60000 } }) // 50 expirations per minute for admins
+  @UseInterceptors(IdempotencyInterceptor)
+  async expirePolicy(@Param('policyId') policyId: string) {
+    const policy = await this.insurance.expirePolicy(policyId);
+    return SerializationTransformer.transform(policy);
   }
 }

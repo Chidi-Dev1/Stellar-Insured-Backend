@@ -35,6 +35,11 @@ export class ClaimService {
     const policy = claim.policy;
     if (!policy) throw new NotFoundException(`Policy for claim ${claimId} not found`);
 
+    // If claim is already assessed (approved/rejected/paid), return it without performing any mutations (idempotent operation)
+    if (claim.status !== ClaimStatus.PENDING) {
+      return claim as ClaimWithPolicy;
+    }
+
     const beforeState = { ...claim };
 
     if (policy.status !== PolicyStatus.ACTIVE) {
@@ -221,9 +226,17 @@ export class ClaimService {
 
   async payClaim(claimId: string): Promise<ClaimWithPolicy> {
     return await this.prisma.$transaction(async tx => {
-      const claim = await this.claimRepository.findByIdWithPolicy(claimId, tx);
-      if (!claim) throw new NotFoundException(`Claim with ID ${claimId} not found`);
-
+      const claim = (await tx.claim.findUnique({
+        where: { id: claimId },
+        include: { policy: true },
+      })) as ClaimWithPolicy | null;
+      if (!claim) {
+        throw new NotFoundException(`Claim with ID ${claimId} not found`);
+      }
+      // If claim is already paid, return it without performing any mutations (idempotent operation)
+      if (claim.status === ClaimStatus.PAID) {
+        return claim as ClaimWithPolicy;
+      }
       const beforeState = { ...claim };
       const updatedClaim = await this.claimRepository.updateStatusWithPolicy(
         claimId,
