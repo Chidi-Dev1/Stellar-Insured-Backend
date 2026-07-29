@@ -6,6 +6,7 @@ import { AuditAction } from '../enums/audit-action.enum';
 import { AuditLogRepository } from '../../common/repositories/audit-log.repository';
 import { TransactionClient } from '../../common/repositories/repository.interface';
 import { redactValue } from '../../common/utils/log-redaction.util';
+import { getCorrelationId } from '../../common/tracing/tracing-context';
 
 type AuditState = Prisma.InputJsonValue | null;
 
@@ -56,6 +57,7 @@ export class AuditService {
         userAgent: this.getUserAgent(),
         transactionHash,
         reason,
+        correlationId: getCorrelationId(),
         timestamp: new Date(),
       },
       tx,

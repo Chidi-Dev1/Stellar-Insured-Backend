@@ -4,6 +4,11 @@ import * as sgMail from '@sendgrid/mail';
 import { Job } from 'bull';
 import { EmailOutboxRepository } from '../../common/repositories/notification.repository';
 import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
+import { randomUUID } from 'crypto';
+import { PrismaService } from '../../prisma.service';
+import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
+import { runWithTracingContext } from '../../common/tracing/tracing-context';
+
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -30,6 +35,13 @@ export class EmailService {
 
   @Process()
   async handleEmailJob(job: Job<EmailJobData>): Promise<void> {
+    return runWithTracingContext(
+      { correlationId: job.data.correlationId ?? randomUUID() },
+      () => this.processEmailJob(job),
+    );
+  }
+
+  private async processEmailJob(job: Job<EmailJobData>): Promise<void> {
     const { outboxId, to, subject, html } = job.data;
 
     if (!this.isValidEmail(to)) {

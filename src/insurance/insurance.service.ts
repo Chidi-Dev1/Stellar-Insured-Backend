@@ -8,6 +8,7 @@ import { AuditService } from './services/audit.service';
 import { InsurancePolicy } from '@prisma/client';
 import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
 import { PrismaService } from '../prisma.service';
+import { updateTracingContext } from '../common/tracing/tracing-context';
 
 @Injectable()
 export class InsuranceService {
@@ -57,6 +58,17 @@ export class InsuranceService {
           { userId, poolId, riskType, coverageAmount, premium },
           tx,
         );
+
+        const created = await tx.insurancePolicy.create({
+          data: {
+            userId,
+            poolId,
+            riskType,
+            coverageAmount,
+            premium,
+          },
+        });
+        updateTracingContext({ entityId: created.id });
         await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased');
         return created;
       });
@@ -68,6 +80,7 @@ export class InsuranceService {
   }
 
   async cancelPolicy(policyId: string): Promise<InsurancePolicy> {
+    updateTracingContext({ entityId: policyId });
     return await this.prisma.$transaction(async tx => {
       const policy = await this.policyRepository.findById(policyId, tx);
       if (!policy) {
@@ -86,6 +99,7 @@ export class InsuranceService {
   }
 
   async expirePolicy(policyId: string): Promise<InsurancePolicy> {
+    updateTracingContext({ entityId: policyId });
     return await this.prisma.$transaction(async tx => {
       const policy = await this.policyRepository.findById(policyId, tx);
       if (!policy) {

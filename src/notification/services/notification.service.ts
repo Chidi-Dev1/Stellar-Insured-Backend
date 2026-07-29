@@ -15,6 +15,7 @@ import {
   EmailOutboxRepository,
 } from '../../common/repositories/notification.repository';
 import { TransactionClient } from '../../common/repositories/repository.interface';
+import { getCorrelationId } from '../../common/tracing/tracing-context';
 
 @Injectable()
 export class NotificationService {
@@ -72,7 +73,11 @@ export class NotificationService {
     const pushSubscription = this.getPushSubscription(contactData.pushSubscription);
     if (settings.pushEnabled && pushSubscription) {
       await this.pushQueue.add(
-        { subscription: pushSubscription, payload: { title, body: message, data } },
+        {
+          subscription: pushSubscription,
+          payload: { title, body: message, data },
+          correlationId: getCorrelationId(),
+        },
         { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
       );
     }
@@ -95,6 +100,7 @@ export class NotificationService {
         to: outbox.to,
         subject: outbox.subject,
         html: outbox.html,
+        correlationId: getCorrelationId(),
       },
       {
         attempts: 5,

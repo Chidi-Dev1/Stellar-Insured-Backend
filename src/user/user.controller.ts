@@ -8,6 +8,7 @@ import {
   Query,
   DefaultValuePipe,
   ParseIntPipe,
+  Version,
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import {
@@ -20,6 +21,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { UserService } from './user.service';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { UserParamsDto } from './dto/user-params.dto';
 import { WalletAddressDto } from './dto/wallet-address.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -34,19 +36,19 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Throttle({ default: { limit: 100, ttl: 60000 } }) // 100 users list requests per minute
+  @Version('1')
   @Get()
   @ApiOperation({ summary: 'List users with pagination' })
   @ApiOkResponse({ description: 'A paginated collection of users' })
   @ApiQuery({ name: 'page', type: Number, required: false, description: 'Page number' })
   @ApiQuery({ name: 'limit', type: Number, required: false, description: 'Number of users per page' })
-  async getUsers(
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
-  ) {
+  async getUsers(@Query() pagination: PaginationQueryDto) {
+    const { page, limit } = pagination;
     return this.userService.findPaginated(page, limit);
   }
 
   @Throttle({ default: { limit: 100, ttl: 60000 } }) // 100 user lookups per minute
+  @Version('1')
   @Get(':id')
   @ApiOperation({ summary: 'Retrieve a user by ID' })
   @ApiParam({ name: 'id', type: String, description: 'User ID' })
@@ -57,6 +59,7 @@ export class UserController {
   }
 
   @Throttle({ default: { limit: 100, ttl: 60000 } }) // 100 wallet lookups per minute
+  @Version('1')
   @Get('wallet/:address')
   @ApiOperation({ summary: 'Retrieve a user by wallet address' })
   @ApiParam({ name: 'address', type: String, description: 'Wallet address to search by' })
@@ -67,6 +70,7 @@ export class UserController {
   }
 
   @Throttle({ default: { limit: 20, ttl: 3600000 } }) // 20 updates per hour per user
+  @Version('1')
   @Patch(':id')
   @ApiOperation({ summary: 'Update a user profile' })
   @ApiParam({ name: 'id', type: String, description: 'ID of the user to update' })
@@ -81,6 +85,7 @@ export class UserController {
   }
 
   @Throttle({ default: { limit: 5, ttl: 3600000 } }) // 5 deletions per hour per user
+  @Version('1')
   @Delete(':id')
   @ApiOperation({ summary: 'Soft delete a user' })
   @ApiParam({ name: 'id', type: String, description: 'ID of the user to delete' })
@@ -106,3 +111,4 @@ export class UserController {
     }) as Record<string, unknown>;
   }
 }
+

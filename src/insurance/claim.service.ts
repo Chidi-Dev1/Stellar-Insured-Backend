@@ -15,6 +15,9 @@ import { Claim, InsurancePolicy, Prisma } from '@prisma/client';
 import { ClaimRepository, ClaimWithPolicy } from '../common/repositories/claim.repository';
 import { PrismaService } from '../prisma.service';
 import { TransactionClient } from '../common/repositories/repository.interface';
+import { updateTracingContext } from '../common/tracing/tracing-context';
+
+type ClaimWithPolicy = Claim & { policy: InsurancePolicy };
 
 @Injectable()
 export class ClaimService {
@@ -31,6 +34,15 @@ export class ClaimService {
   async assessClaim(claimId: string): Promise<ClaimWithPolicy> {
     const claim = await this.claimRepository.findByIdWithPolicy(claimId);
     if (!claim) throw new NotFoundException(`Claim with ID ${claimId} not found`);
+    updateTracingContext({ entityId: claimId });
+    const claim = (await this.prisma.claim.findUnique({
+      where: { id: claimId },
+      include: { policy: true },
+    })) as ClaimWithPolicy | null;
+
+    if (!claim) {
+      throw new NotFoundException(`Claim with ID ${claimId} not found`);
+    }
 
     const policy = claim.policy;
     if (!policy) throw new NotFoundException(`Policy for claim ${claimId} not found`);
@@ -225,6 +237,7 @@ export class ClaimService {
   }
 
   async payClaim(claimId: string): Promise<ClaimWithPolicy> {
+    updateTracingContext({ entityId: claimId });
     return await this.prisma.$transaction(async tx => {
       const claim = (await tx.claim.findUnique({
         where: { id: claimId },
@@ -255,6 +268,14 @@ export class ClaimService {
 
   async createClaim(policyId: string, claimAmount: Prisma.Decimal): Promise<Claim> {
     const savedClaim = await this.claimRepository.createClaim({ policyId, claimAmount, status: ClaimStatus.PENDING });
+    const savedClaim = await this.prisma.claim.create({
+      data: {
+        policyId,
+        claimAmount,
+        status: ClaimStatus.PENDING,
+      },
+    });
+    updateTracingContext({ entityId: savedClaim.id });
     await this.auditService.logCreate('Claim', savedClaim.id, savedClaim);
     return savedClaim;
   }

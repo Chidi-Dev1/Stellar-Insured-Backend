@@ -24,6 +24,7 @@ import {
 } from '../../common/repositories';
 
 // ─── ProjectCreatedHandler ────────────────────────────────────────────────────
+import { updateTracingContext } from '../../common/tracing/tracing-context';
 
 class ProjectCreatedHandler implements IEventHandler {
   readonly eventType = ContractEventType.PROJECT_CREATED;
@@ -60,6 +61,9 @@ class ProjectCreatedHandler implements IEventHandler {
       {
         contractId: data.projectId.toString(),
         creatorId: user.id,
+    const project = await this.prisma.project.upsert({
+      where: { contractId: data.projectId.toString() },
+      update: {
         title: `Project ${data.projectId}`,
         category: 'uncategorized',
         goal: BigInt(data.fundingGoal),
@@ -73,6 +77,8 @@ class ProjectCreatedHandler implements IEventHandler {
         status: 'ACTIVE',
       },
     );
+    });
+    updateTracingContext({ entityId: project.id });
 
     this.logger.log(`Created/updated project ${data.projectId}`);
   }
@@ -114,6 +120,7 @@ class ContributionMadeHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for contribution`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.contributionRepository.upsertByTxHash(event.transactionHash, {
       transactionHash: event.transactionHash,
@@ -187,6 +194,7 @@ class MilestoneApprovedHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for milestone approval`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.milestoneRepository.updateManyByProject(project.id, { status: 'APPROVED' });
 
@@ -255,6 +263,7 @@ class MilestoneRejectedHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for milestone rejection`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.milestoneRepository.updateManyByProject(project.id, { status: 'REJECTED' });
 
@@ -320,6 +329,7 @@ class FundsReleasedHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for funds release`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.milestoneRepository.updateManyByProject(project.id, {
       status: 'FUNDED',
@@ -348,6 +358,11 @@ class ProjectCompletedHandler implements IEventHandler {
     this.logger.log(`Processing PROJECT_COMPLETED: Project ${data.projectId}`);
     await this.projectRepository.updateManyByContractId(data.projectId.toString(), {
       status: 'COMPLETED',
+    updateTracingContext({ entityId: data.projectId.toString() });
+
+    await this.prisma.project.updateMany({
+      where: { contractId: data.projectId.toString() },
+      data: { status: 'COMPLETED' },
     });
     this.logger.log(`Marked project ${data.projectId} as completed`);
   }
@@ -371,6 +386,11 @@ class ProjectFailedHandler implements IEventHandler {
     this.logger.log(`Processing PROJECT_FAILED: Project ${data.projectId}`);
     await this.projectRepository.updateManyByContractId(data.projectId.toString(), {
       status: 'CANCELLED',
+    updateTracingContext({ entityId: data.projectId.toString() });
+
+    await this.prisma.project.updateMany({
+      where: { contractId: data.projectId.toString() },
+      data: { status: 'CANCELLED' },
     });
     this.logger.log(`Marked project ${data.projectId} as failed/cancelled`);
   }
@@ -403,6 +423,15 @@ class DividendClaimedHandler implements IEventHandler {
       { walletAddress: data.claimer, reputationScore: 0 },
       {},
     );
+    const user = await this.prisma.user.upsert({
+      where: { walletAddress: data.claimer },
+      update: {},
+      create: {
+        walletAddress: data.claimer,
+        reputationScore: 0,
+      },
+    });
+    updateTracingContext({ entityId: data.poolId, userId: user.id });
 
     await this.reputationService.updateTrustScore(user.id);
     this.logger.log(`Updated trust score for claimer ${user.id}`);
