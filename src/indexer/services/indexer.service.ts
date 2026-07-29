@@ -9,6 +9,7 @@ import { EventHandlerService } from './event-handler.service';
 import { XdrDecoderService } from './xdr-decoder.service';
 import { SorobanEvent, ParsedContractEvent, ContractEventType } from '../types/event-types';
 import { LedgerInfo } from '../types/ledger.types';
+import { QuarantinedEventRepository } from '../../common/repositories/indexer.repository';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
 
 /**
@@ -31,7 +32,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly prisma: PrismaService,
+    private readonly quarantinedEventRepository: QuarantinedEventRepository,
     private readonly ledgerTracker: LedgerTrackerService,
     private readonly eventHandler: EventHandlerService,
     private readonly xdrDecoder: XdrDecoderService,
@@ -443,20 +444,16 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     const reason = (data._quarantineReason as string) || 'unknown';
     const rawXdr = (data.rawXdr as string) || event.value;
 
-    await this.prisma.quarantinedEvent
-      .upsert({
-        where: { eventId: event.id },
-        update: {},
-        create: {
-          eventId: event.id,
-          network: this.network,
-          contractId: event.contractId,
-          eventType: parsedEvent.eventType,
-          ledgerSeq: event.ledger,
-          transactionHash: event.txHash,
-          rawXdr,
-          reason,
-        },
+    await this.quarantinedEventRepository
+      .upsertEvent({
+        eventId: event.id,
+        network: this.network,
+        contractId: event.contractId,
+        eventType: parsedEvent.eventType,
+        ledgerSeq: event.ledger,
+        transactionHash: event.txHash,
+        rawXdr,
+        reason,
       })
       .catch((err) => {
         this.logger.error(`Failed to quarantine event ${event.id}: ${err.message}`);

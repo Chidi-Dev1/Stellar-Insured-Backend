@@ -4,9 +4,10 @@ import { PricingService } from './pricing.service';
 import { PoolService } from './pool.service';
 import { RiskType } from './enums/risk-type.enum';
 import { PolicyStatus } from './enums/policy-status.enum';
-import { PrismaService } from '../prisma.service';
 import { AuditService } from './services/audit.service';
 import { InsurancePolicy } from '@prisma/client';
+import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
+import { PrismaService } from '../prisma.service';
 import { updateTracingContext } from '../common/tracing/tracing-context';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class InsuranceService {
     private readonly pools: PoolService,
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly policyRepository: InsurancePolicyRepository,
   ) {}
 
   async purchasePolicy(
@@ -51,8 +53,11 @@ export class InsuranceService {
         }
 
         const premium = this.pricing.calculatePremium(riskType, coverageAmount);
-
         await this.pools.lockCapital(poolId, coverageAmount, tx);
+        const created = await this.policyRepository.createPolicy(
+          { userId, poolId, riskType, coverageAmount, premium },
+          tx,
+        );
 
         const created = await tx.insurancePolicy.create({
           data: {
@@ -69,9 +74,7 @@ export class InsuranceService {
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `Purchase policy failed for user ${userId}, pool ${poolId}: ${message}`,
-      );
+      this.logger.error(`Purchase policy failed for user ${userId}, pool ${poolId}: ${message}`);
       throw error;
     }
   }
@@ -79,9 +82,7 @@ export class InsuranceService {
   async cancelPolicy(policyId: string): Promise<InsurancePolicy> {
     updateTracingContext({ entityId: policyId });
     return await this.prisma.$transaction(async tx => {
-      const policy = await tx.insurancePolicy.findUnique({
-        where: { id: policyId },
-      });
+      const policy = await this.policyRepository.findById(policyId, tx);
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
@@ -90,10 +91,7 @@ export class InsuranceService {
         return policy;
       }
       const beforeState = { ...policy };
-      const updated = await tx.insurancePolicy.update({
-        where: { id: policyId },
-        data: { status: PolicyStatus.CANCELLED },
-      });
+      const updated = await this.policyRepository.updateStatus(policyId, PolicyStatus.CANCELLED, tx);
       await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal, tx);
       await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy cancelled', tx);
       return updated;
@@ -103,9 +101,7 @@ export class InsuranceService {
   async expirePolicy(policyId: string): Promise<InsurancePolicy> {
     updateTracingContext({ entityId: policyId });
     return await this.prisma.$transaction(async tx => {
-      const policy = await tx.insurancePolicy.findUnique({
-        where: { id: policyId },
-      });
+      const policy = await this.policyRepository.findById(policyId, tx);
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
@@ -114,10 +110,7 @@ export class InsuranceService {
         return policy;
       }
       const beforeState = { ...policy };
-      const updated = await tx.insurancePolicy.update({
-        where: { id: policyId },
-        data: { status: PolicyStatus.EXPIRED },
-      });
+      const updated = await this.policyRepository.updateStatus(policyId, PolicyStatus.EXPIRED, tx);
       await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal, tx);
       await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy expired', tx);
       return updated;

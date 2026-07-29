@@ -3,7 +3,8 @@ import { REQUEST } from '@nestjs/core';
 import { Request } from 'express';
 import { Prisma } from '@prisma/client';
 import { AuditAction } from '../enums/audit-action.enum';
-import { PrismaService } from '../../prisma.service';
+import { AuditLogRepository } from '../../common/repositories/audit-log.repository';
+import { TransactionClient } from '../../common/repositories/repository.interface';
 import { redactValue } from '../../common/utils/log-redaction.util';
 import { getCorrelationId } from '../../common/tracing/tracing-context';
 
@@ -18,7 +19,7 @@ interface AuthenticatedRequest extends Request {
 @Injectable({ scope: Scope.REQUEST })
 export class AuditService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly auditLogRepository: AuditLogRepository,
     @Inject(REQUEST) private request: AuthenticatedRequest,
   ) {}
 
@@ -42,10 +43,10 @@ export class AuditService {
     afterState?: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await (tx ?? this.prisma).auditLog.create({
-      data: {
+    await this.auditLogRepository.createLog(
+      {
         userId: this.getUserId(),
         action,
         entityType,
@@ -59,7 +60,8 @@ export class AuditService {
         correlationId: getCorrelationId(),
         timestamp: new Date(),
       },
-    });
+      tx,
+    );
   }
 
   async logCreate(
@@ -68,18 +70,9 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.CREATE,
-      entityType,
-      entityId,
-      null,
-      afterState,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.CREATE, entityType, entityId, null, afterState, transactionHash, reason, tx);
   }
 
   async logUpdate(
@@ -89,18 +82,9 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.UPDATE,
-      entityType,
-      entityId,
-      beforeState,
-      afterState,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.UPDATE, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
   }
 
   async logDelete(
@@ -109,18 +93,9 @@ export class AuditService {
     beforeState: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.DELETE,
-      entityType,
-      entityId,
-      beforeState,
-      null,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.DELETE, entityType, entityId, beforeState, null, transactionHash, reason, tx);
   }
 
   async logApprove(
@@ -130,18 +105,9 @@ export class AuditService {
     afterState?: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.APPROVE,
-      entityType,
-      entityId,
-      beforeState,
-      afterState,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.APPROVE, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
   }
 
   async logReject(
@@ -150,18 +116,9 @@ export class AuditService {
     beforeState?: unknown,
     afterState?: unknown,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.REJECT,
-      entityType,
-      entityId,
-      beforeState,
-      afterState,
-      undefined,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.REJECT, entityType, entityId, beforeState, afterState, undefined, reason, tx);
   }
 
   async logPayout(
@@ -171,18 +128,9 @@ export class AuditService {
     afterState?: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.PAYOUT,
-      entityType,
-      entityId,
-      beforeState,
-      afterState,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.PAYOUT, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
   }
 
   async logPurchase(
@@ -191,18 +139,9 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.PURCHASE,
-      entityType,
-      entityId,
-      null,
-      afterState,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.PURCHASE, entityType, entityId, null, afterState, transactionHash, reason, tx);
   }
 
   async logUnlockCapital(
@@ -212,18 +151,9 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.UNLOCK_CAPITAL,
-      entityType,
-      entityId,
-      beforeState,
-      afterState,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.UNLOCK_CAPITAL, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
   }
 
   async logAddCapital(
@@ -233,18 +163,9 @@ export class AuditService {
     afterState: unknown,
     transactionHash?: string,
     reason?: string,
-    tx?: Prisma.TransactionClient,
+    tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(
-      AuditAction.ADD_CAPITAL,
-      entityType,
-      entityId,
-      beforeState,
-      afterState,
-      transactionHash,
-      reason,
-      tx,
-    );
+    await this.log(AuditAction.ADD_CAPITAL, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
   }
 
   /**
@@ -255,44 +176,24 @@ export class AuditService {
     before: unknown,
     after: unknown,
   ): { beforeState: AuditState; afterState: AuditState } {
-    const b =
-      before && typeof before === 'object'
-        ? { ...(before as Record<string, unknown>) }
-        : {};
-    const a =
-      after && typeof after === 'object'
-        ? { ...(after as Record<string, unknown>) }
-        : {};
+    const b = before && typeof before === 'object' ? { ...(before as Record<string, unknown>) } : {};
+    const a = after && typeof after === 'object' ? { ...(after as Record<string, unknown>) } : {};
     return {
       beforeState: this.toAuditState(this.redactSensitive(b)) ?? null,
       afterState: this.toAuditState(this.redactSensitive(a)) ?? null,
     };
   }
 
-  /**
-   * Redact sensitive fields from an object before writing to audit logs.
-   * Encrypted email and pushSubscription are replaced with '[REDACTED]'.
-   */
-  private redactSensitive(
-    obj: Record<string, unknown>,
-  ): Record<string, unknown> {
+  private redactSensitive(obj: Record<string, unknown>): Record<string, unknown> {
     const redacted = redactValue(obj);
-    if (
-      typeof redacted === 'object' &&
-      redacted !== null &&
-      !Array.isArray(redacted)
-    ) {
+    if (typeof redacted === 'object' && redacted !== null && !Array.isArray(redacted)) {
       return redacted as Record<string, unknown>;
     }
     return obj;
   }
-  private toAuditState(value: unknown): AuditState | undefined {
-    if (value === undefined) {
-      return undefined;
-    }
 
-    return JSON.parse(
-      JSON.stringify(redactValue(value)),
-    ) as Prisma.InputJsonValue;
+  private toAuditState(value: unknown): AuditState | undefined {
+    if (value === undefined) return undefined;
+    return JSON.parse(JSON.stringify(redactValue(value))) as Prisma.InputJsonValue;
   }
 }
