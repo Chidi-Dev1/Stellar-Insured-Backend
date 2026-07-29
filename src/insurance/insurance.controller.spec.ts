@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import { InsuranceController } from './insurance.controller';
 import { InsuranceService } from './insurance.service';
 import { ClaimService } from './claim.service';
 import { ReinsuranceService } from './reinsurance.service';
+import { IdempotencyInterceptor } from '../interceptors/idempotency.interceptor';
 import { RiskType } from './enums/risk-type.enum';
 
 describe('InsuranceController', () => {
@@ -34,6 +36,12 @@ describe('InsuranceController', () => {
             createContract: jest.fn(),
           },
         },
+        {
+          provide: IdempotencyInterceptor,
+          useValue: {
+            intercept: jest.fn((_: any, next: any) => next.handle()),
+          },
+        },
       ],
     }).compile();
 
@@ -54,7 +62,7 @@ describe('InsuranceController', () => {
         userId: 'user-1',
         poolId: 'pool-1',
         riskType: RiskType.PROJECT_FAILURE,
-        coverageAmount: 10000,
+        coverageAmount: new Prisma.Decimal(10000),
       };
 
       const expectedResult = { id: 'policy-1', ...body };
@@ -66,7 +74,7 @@ describe('InsuranceController', () => {
         'user-1',
         'pool-1',
         RiskType.PROJECT_FAILURE,
-        10000,
+        new Prisma.Decimal(10000),
       );
       expect(result).toEqual(expectedResult);
     });
@@ -100,8 +108,8 @@ describe('InsuranceController', () => {
     it('should call reinsuranceService.createContract with dto values', async () => {
       const body = {
         poolId: 'pool-1',
-        coverageLimit: 50000,
-        premiumRate: 0.02,
+        coverageLimit: new Prisma.Decimal(50000),
+        premiumRate: new Prisma.Decimal(0.02),
       };
 
       const expectedResult = { id: 'contract-1', ...body };
@@ -109,7 +117,11 @@ describe('InsuranceController', () => {
 
       const result = await controller.createReinsurance(body);
 
-      expect(reinsuranceService.createContract).toHaveBeenCalledWith('pool-1', 50000, 0.02);
+      expect(reinsuranceService.createContract).toHaveBeenCalledWith(
+        'pool-1',
+        new Prisma.Decimal(50000),
+        new Prisma.Decimal(0.02),
+      );
       expect(result).toEqual(expectedResult);
     });
   });

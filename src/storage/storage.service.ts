@@ -8,7 +8,13 @@ import {
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { ConfigService } from '@nestjs/config';
-import { create, IPFSHTTPClient } from 'ipfs-http-client';
+
+// Use a local alias because `ipfs-http-client` is an ESM-only package.
+type IPFSHTTPClient = {
+  add: (content: string) => Promise<{ path: string }>;
+  cat: (hash: string) => AsyncIterable<unknown>;
+};
+
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -46,7 +52,10 @@ try {
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private ipfs: IPFSHTTPClient;
+  private ipfs?: IPFSHTTPClient;
+  private ipfsPromise?: Promise<IPFSHTTPClient>;
+  private ipfsConfig: { host: string; port: number; protocol: string } | null = null;
+  private readonly ipfsInitTimeoutMs = 5000;
   private readonly s3: S3Client;
   private readonly bucket: string;
   private readonly maxFileSize: number;
@@ -59,12 +68,7 @@ export class StorageService {
     const ipfsHost = this.config.get<string>('storage.ipfs.host') || 'localhost';
     const ipfsPort = this.config.get<number>('storage.ipfs.port') || 5001;
     const ipfsProtocol = this.config.get<string>('storage.ipfs.protocol') || 'http';
-
-    this.ipfs = create({
-      host: ipfsHost,
-      port: ipfsPort,
-      protocol: ipfsProtocol,
-    });
+    this.ipfsConfig = { host: ipfsHost, port: ipfsPort, protocol: ipfsProtocol };
 
     const region = this.config.get<string>('AWS_REGION');
     const accessKeyId = this.config.get<string>('AWS_ACCESS_KEY_ID');
@@ -86,6 +90,33 @@ export class StorageService {
       credentials: { accessKeyId, secretAccessKey },
     });
     this.logger.log(`S3 client initialised for bucket "${this.bucket}" in region "${region}"`);
+  }
+
+  private async getIpfs(): Promise<IPFSHTTPClient> {
+    if (this.ipfs) return this.ipfs;
+    if (!this.ipfsConfig) {
+      throw new Error('IPFS configuration not initialised');
+    }
+    if (!this.ipfsPromise) {
+      const initPromise = import('ipfs-http-client')
+        .then(mod => mod.create({
+          host: this.ipfsConfig!.host,
+          port: this.ipfsConfig!.port,
+          protocol: this.ipfsConfig!.protocol,
+        }) as unknown as IPFSHTTPClient)
+        .catch(err => {
+          this.logger.error('Failed to load ipfs-http-client', err);
+          throw err;
+        });
+
+      const timeoutPromise = new Promise<IPFSHTTPClient>((_, reject) => {
+        setTimeout(() => reject(new Error('IPFS client initialization timed out')), this.ipfsInitTimeoutMs);
+      });
+
+      this.ipfsPromise = Promise.race([initPromise, timeoutPromise]);
+    }
+    this.ipfs = await this.ipfsPromise;
+    return this.ipfs;
   }
 
   // ──────────────────── S3 helpers ────────────────────
@@ -171,7 +202,8 @@ export class StorageService {
 
   async pinProjectMetadata(metadata: Record<string, unknown>): Promise<string> {
     try {
-      const cid = await this.ipfs.add(JSON.stringify(metadata));
+      const ipfs = await this.getIpfs();
+      const cid = await ipfs.add(JSON.stringify(metadata));
       this.logger.log(`Pinned metadata with CID: ${cid.path}`);
       return cid.path;
     } catch (error) {
@@ -222,8 +254,9 @@ export class StorageService {
 
   async verifyIPFSHash(hash: string): Promise<boolean> {
     try {
+      const ipfs = await this.getIpfs();
       const chunks = [];
-      for await (const chunk of this.ipfs.cat(hash)) {
+      for await (const chunk of ipfs.cat(hash)) {
         chunks.push(chunk);
       }
       return chunks.length > 0;

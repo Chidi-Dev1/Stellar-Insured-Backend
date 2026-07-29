@@ -7,6 +7,7 @@ import { PolicyStatus } from './enums/policy-status.enum';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from './services/audit.service';
 import { InsurancePolicy } from '@prisma/client';
+import { updateTracingContext } from '../common/tracing/tracing-context';
 
 @Injectable()
 export class InsuranceService {
@@ -34,6 +35,21 @@ export class InsuranceService {
 
     try {
       return await this.prisma.$transaction(async tx => {
+        // Check if user already has an active policy for this pool to prevent duplicates (idempotent operation)
+        const existingPolicy = await tx.insurancePolicy.findFirst({
+          where: {
+            userId,
+            poolId,
+            status: {
+              in: [PolicyStatus.ACTIVE, PolicyStatus.PENDING],
+            },
+          },
+        });
+
+        if (existingPolicy) {
+          return existingPolicy;
+        }
+
         const premium = this.pricing.calculatePremium(riskType, coverageAmount);
 
         await this.pools.lockCapital(poolId, coverageAmount, tx);
@@ -47,6 +63,7 @@ export class InsuranceService {
             premium,
           },
         });
+        updateTracingContext({ entityId: created.id });
         await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased');
         return created;
       });
@@ -60,6 +77,7 @@ export class InsuranceService {
   }
 
   async cancelPolicy(policyId: string): Promise<InsurancePolicy> {
+    updateTracingContext({ entityId: policyId });
     return await this.prisma.$transaction(async tx => {
       const policy = await tx.insurancePolicy.findUnique({
         where: { id: policyId },
@@ -67,8 +85,9 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
+      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
-        throw new BadRequestException('Policy is already inactive');
+        return policy;
       }
       const beforeState = { ...policy };
       const updated = await tx.insurancePolicy.update({
@@ -82,6 +101,7 @@ export class InsuranceService {
   }
 
   async expirePolicy(policyId: string): Promise<InsurancePolicy> {
+    updateTracingContext({ entityId: policyId });
     return await this.prisma.$transaction(async tx => {
       const policy = await tx.insurancePolicy.findUnique({
         where: { id: policyId },
@@ -89,8 +109,9 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
+      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
-        throw new BadRequestException('Policy is already inactive');
+        return policy;
       }
       const beforeState = { ...policy };
       const updated = await tx.insurancePolicy.update({

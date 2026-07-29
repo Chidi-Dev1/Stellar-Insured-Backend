@@ -98,7 +98,7 @@ export class UserController {
     };
   }
 
-  private mapUserResponse(user: any) {
+  private mapUserResponse(user: any): Record<string, unknown> {
     return SerializationTransformer.transform({
       id: user.id,
       walletAddress: user.walletAddress,
@@ -108,7 +108,7 @@ export class UserController {
       profileData: user.profileData ? sanitizeObject(user.profileData) : null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-    });
+    }) as Record<string, unknown>;
   }
 }
 

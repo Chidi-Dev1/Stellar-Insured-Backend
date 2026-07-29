@@ -13,6 +13,7 @@ import { AuditService } from './services/audit.service';
 import { ReputationService } from '../reputation/reputation.service';
 import { REPUTATION_DELTAS } from '../reputation/reputation.constants';
 import { Claim, InsurancePolicy, Prisma } from '@prisma/client';
+import { updateTracingContext } from '../common/tracing/tracing-context';
 
 type ClaimWithPolicy = Claim & { policy: InsurancePolicy };
 
@@ -28,6 +29,7 @@ export class ClaimService {
   ) {}
 
   async assessClaim(claimId: string): Promise<ClaimWithPolicy> {
+    updateTracingContext({ entityId: claimId });
     const claim = (await this.prisma.claim.findUnique({
       where: { id: claimId },
       include: { policy: true },
@@ -40,6 +42,11 @@ export class ClaimService {
     const policy = claim.policy;
     if (!policy) {
       throw new NotFoundException(`Policy for claim ${claimId} not found`);
+    }
+
+    // If claim is already assessed (approved/rejected/paid), return it without performing any mutations (idempotent operation)
+    if (claim.status !== ClaimStatus.PENDING) {
+      return claim as ClaimWithPolicy;
     }
 
     const beforeState = { ...claim };
@@ -290,6 +297,7 @@ export class ClaimService {
   }
 
   async payClaim(claimId: string): Promise<ClaimWithPolicy> {
+    updateTracingContext({ entityId: claimId });
     return await this.prisma.$transaction(async tx => {
       const claim = (await tx.claim.findUnique({
         where: { id: claimId },
@@ -297,6 +305,10 @@ export class ClaimService {
       })) as ClaimWithPolicy | null;
       if (!claim) {
         throw new NotFoundException(`Claim with ID ${claimId} not found`);
+      }
+      // If claim is already paid, return it without performing any mutations (idempotent operation)
+      if (claim.status === ClaimStatus.PAID) {
+        return claim as ClaimWithPolicy;
       }
       const beforeState = { ...claim };
       const updatedClaim = (await tx.claim.update({
@@ -329,6 +341,7 @@ export class ClaimService {
         status: ClaimStatus.PENDING,
       },
     });
+    updateTracingContext({ entityId: savedClaim.id });
     await this.auditService.logCreate('Claim', savedClaim.id, savedClaim);
     return savedClaim;
   }
