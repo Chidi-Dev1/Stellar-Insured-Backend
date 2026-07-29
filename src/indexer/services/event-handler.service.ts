@@ -17,6 +17,7 @@ import { ReputationService } from '../../reputation/reputation.service';
 import { REPUTATION_DELTAS } from '../../reputation/reputation.constants';
 import { NotificationType } from '../../notification/enums/notification-type.enum';
 import { SerializationTransformer } from '../../common/utils/serialization.util';
+import { updateTracingContext } from '../../common/tracing/tracing-context';
 
 /**
  * Handler for PROJECT_CREATED events
@@ -52,7 +53,7 @@ class ProjectCreatedHandler implements IEventHandler {
       },
     });
 
-    await this.prisma.project.upsert({
+    const project = await this.prisma.project.upsert({
       where: { contractId: data.projectId.toString() },
       update: {
         title: `Project ${data.projectId}`,
@@ -70,6 +71,7 @@ class ProjectCreatedHandler implements IEventHandler {
         status: 'ACTIVE',
       },
     });
+    updateTracingContext({ entityId: project.id });
 
     this.logger.log(`Created/updated project ${data.projectId}`);
   }
@@ -117,6 +119,7 @@ class ContributionMadeHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for contribution`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.prisma.contribution.upsert({
       where: { transactionHash: event.transactionHash },
@@ -199,6 +202,7 @@ class MilestoneApprovedHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for milestone approval`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.prisma.milestone.updateMany({
       where: {
@@ -280,6 +284,7 @@ class MilestoneRejectedHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for milestone rejection`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.prisma.milestone.updateMany({
       where: {
@@ -355,6 +360,7 @@ class FundsReleasedHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for funds release`);
       return;
     }
+    updateTracingContext({ entityId: project.id });
 
     await this.prisma.milestone.updateMany({
       where: {
@@ -388,6 +394,7 @@ class ProjectCompletedHandler implements IEventHandler {
     const data = event.data as unknown as ProjectStatusEvent;
 
     this.logger.log(`Processing PROJECT_COMPLETED: Project ${data.projectId}`);
+    updateTracingContext({ entityId: data.projectId.toString() });
 
     await this.prisma.project.updateMany({
       where: { contractId: data.projectId.toString() },
@@ -416,6 +423,7 @@ class ProjectFailedHandler implements IEventHandler {
     const data = event.data as unknown as ProjectStatusEvent;
 
     this.logger.log(`Processing PROJECT_FAILED: Project ${data.projectId}`);
+    updateTracingContext({ entityId: data.projectId.toString() });
 
     await this.prisma.project.updateMany({
       where: { contractId: data.projectId.toString() },
@@ -460,6 +468,7 @@ class DividendClaimedHandler implements IEventHandler {
         reputationScore: 0,
       },
     });
+    updateTracingContext({ entityId: data.poolId, userId: user.id });
 
     // Reflect the on-chain claim in the user's reputation/trust score.
     await this.reputationService.updateTrustScore(user.id);

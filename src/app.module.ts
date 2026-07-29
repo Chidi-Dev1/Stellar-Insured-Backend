@@ -111,6 +111,10 @@ import { IdempotencyCleanupTask } from './interceptors/tasks/idempotency-cleanup
   ],
 })
 export class AppModule implements NestModule {
+  // Also applied directly via app.use() in main.ts, ahead of expressWinston's
+  // request logger, so production request logs are covered too. Kept here as
+  // well so any TestingModule built directly from AppModule (bypassing
+  // main.ts's bootstrap) still gets a tracing scope for its requests.
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(CorrelationIdMiddleware).forRoutes('*');
   }

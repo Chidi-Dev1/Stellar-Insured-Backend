@@ -13,6 +13,7 @@ import { AuditService } from './services/audit.service';
 import { ReputationService } from '../reputation/reputation.service';
 import { REPUTATION_DELTAS } from '../reputation/reputation.constants';
 import { Claim, InsurancePolicy, Prisma } from '@prisma/client';
+import { updateTracingContext } from '../common/tracing/tracing-context';
 
 type ClaimWithPolicy = Claim & { policy: InsurancePolicy };
 
@@ -28,6 +29,7 @@ export class ClaimService {
   ) {}
 
   async assessClaim(claimId: string): Promise<ClaimWithPolicy> {
+    updateTracingContext({ entityId: claimId });
     const claim = (await this.prisma.claim.findUnique({
       where: { id: claimId },
       include: { policy: true },
@@ -295,6 +297,7 @@ export class ClaimService {
   }
 
   async payClaim(claimId: string): Promise<ClaimWithPolicy> {
+    updateTracingContext({ entityId: claimId });
     return await this.prisma.$transaction(async tx => {
       const claim = (await tx.claim.findUnique({
         where: { id: claimId },
@@ -338,6 +341,7 @@ export class ClaimService {
         status: ClaimStatus.PENDING,
       },
     });
+    updateTracingContext({ entityId: savedClaim.id });
     await this.auditService.logCreate('Claim', savedClaim.id, savedClaim);
     return savedClaim;
   }
