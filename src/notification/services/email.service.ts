@@ -6,7 +6,6 @@ import { EmailOutboxRepository } from '../../common/repositories/notification.re
 import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma.service';
-import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
 
 import { ConfigService } from '@nestjs/config';
