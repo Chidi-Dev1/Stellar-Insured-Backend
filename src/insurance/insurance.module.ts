@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { DatabaseModule } from '../database.module';
 import { ReputationModule } from '../reputation/reputation.module';
+import { NotificationModule } from '../notification/notification.module';
 
 import { InsuranceController } from './insurance.controller';
 
@@ -11,6 +12,7 @@ import { ReinsuranceService } from './reinsurance.service';
 import { PricingService } from './pricing.service';
 import { AuditService } from './services/audit.service';
 import { IdempotencyInterceptor } from '../interceptors/idempotency.interceptor';
+import { IdempotencyService } from '../interceptors/idempotency.service';
 
 import {
   AuditLogRepository,
@@ -21,7 +23,7 @@ import {
 } from '../common/repositories';
 
 @Module({
-  imports: [DatabaseModule, ReputationModule],
+  imports: [DatabaseModule, ReputationModule, forwardRef(() => NotificationModule)],
   controllers: [InsuranceController],
   providers: [
     // Repositories
@@ -38,6 +40,7 @@ import {
     PricingService,
     AuditService,
     IdempotencyInterceptor,
+    IdempotencyService,
   ],
   exports: [
     InsuranceService,

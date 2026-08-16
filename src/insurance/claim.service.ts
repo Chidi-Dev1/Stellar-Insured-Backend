@@ -16,6 +16,8 @@ import { ClaimRepository, ClaimWithPolicy } from '../common/repositories/claim.r
 import { PrismaService } from '../prisma.service';
 import { TransactionClient } from '../common/repositories/repository.interface';
 import { updateTracingContext } from '../common/tracing/tracing-context';
+import { NotificationService, PreparedNotification } from '../notification/services/notification.service';
+import { NotificationType } from '../notification/enums/notification-type.enum';
 
 @Injectable()
 export class ClaimService {
@@ -27,10 +29,15 @@ export class ClaimService {
     private readonly auditService: AuditService,
     private readonly reputationService: ReputationService,
     private readonly claimRepository: ClaimRepository,
+    private readonly notifications: NotificationService,
   ) {}
 
   async assessClaim(claimId: string): Promise<ClaimWithPolicy> {
-    return await this.prisma.$transaction(async tx => {
+    // Notifications are persisted inside the transaction (atomic with the
+    // claim state change) and their jobs are only queued after it commits.
+    const preparedNotifications: PreparedNotification[] = [];
+
+    const result = await this.prisma.$transaction(async tx => {
       const claim = await this.claimRepository.findByIdWithPolicy(claimId, tx);
       if (!claim) throw new NotFoundException(`Claim with ID ${claimId} not found`);
 
@@ -45,12 +52,12 @@ export class ClaimService {
 
       if (policy.status !== PolicyStatus.ACTIVE) {
         const reason = `Policy is not active: ${policy.status}`;
-        return await this.rejectClaim(claimId, beforeState, reason, policy, tx);
+        return await this.rejectClaim(claimId, beforeState, reason, policy, tx, preparedNotifications);
       }
 
       if ((claim.claimAmount as Prisma.Decimal).gt(policy.coverageAmount as Prisma.Decimal)) {
         const reason = 'Claim amount exceeds coverage';
-        return await this.rejectClaim(claimId, beforeState, reason, policy, tx);
+        return await this.rejectClaim(claimId, beforeState, reason, policy, tx, preparedNotifications);
       }
 
       const isFraudulent = await this.runFraudDetection(claim, tx);
@@ -77,7 +84,7 @@ export class ClaimService {
       const oracleVerified = await this.verifyOracle(claimId, tx);
       if (!oracleVerified) {
         const reason = 'Oracle verification failed';
-        return await this.rejectClaim(claimId, beforeState, reason, policy, tx);
+        return await this.rejectClaim(claimId, beforeState, reason, policy, tx, preparedNotifications);
       }
 
       const updatedClaim = await this.claimRepository.updateStatusWithPolicy(
@@ -94,8 +101,24 @@ export class ClaimService {
         tx,
       );
 
+      const prepared = await this.notifications.prepareNotification(
+        policy.userId,
+        NotificationType.CLAIM_APPROVED,
+        'Claim Approved',
+        `Your claim ${claimId} has been approved for payout.`,
+        { claimId, policyId: policy.id },
+        tx,
+      );
+      if (prepared) preparedNotifications.push(prepared);
+
       return updatedClaim;
     });
+
+    // Commit boundary — queue notification jobs only after the transaction
+    // committed. Best-effort: a queue failure never fails the assessment.
+    await this.notifications.dispatchPrepared(preparedNotifications);
+
+    return result;
   }
 
   private async rejectClaim(
@@ -104,11 +127,23 @@ export class ClaimService {
     reason: string,
     policy: InsurancePolicy,
     tx: TransactionClient,
+    preparedNotifications: PreparedNotification[],
   ): Promise<ClaimWithPolicy> {
     const updated = await this.claimRepository.updateStatusWithPolicy(claimId, ClaimStatus.REJECTED, {}, tx);
     await this.pools.unlockCapital(policy.poolId, new Prisma.Decimal(updated.claimAmount), tx);
     await this.auditService.logReject('Claim', claimId, beforeState, updated, reason, tx);
     await this.reputationService.adjustReputation(policy.userId, REPUTATION_DELTAS.CLAIM_REJECTED, `Claim ${claimId} rejected: ${reason}`, tx);
+
+    const prepared = await this.notifications.prepareNotification(
+      policy.userId,
+      NotificationType.CLAIM_REJECTED,
+      'Claim Rejected',
+      `Your claim ${claimId} was rejected: ${reason}`,
+      { claimId, policyId: policy.id, reason },
+      tx,
+    );
+    if (prepared) preparedNotifications.push(prepared);
+
     return updated;
   }
 
@@ -185,11 +220,11 @@ export class ClaimService {
 
   async payClaim(claimId: string): Promise<ClaimWithPolicy> {
     updateTracingContext({ entityId: claimId });
-    return await this.prisma.$transaction(async tx => {
-      const claim = (await tx.claim.findUnique({
-        where: { id: claimId },
-        include: { policy: true },
-      })) as ClaimWithPolicy | null;
+
+    let payoutNotification: PreparedNotification | null = null;
+
+    const result = await this.prisma.$transaction(async tx => {
+      const claim = await this.claimRepository.findByIdWithPolicy(claimId, tx);
       if (!claim) {
         throw new NotFoundException(`Claim with ID ${claimId} not found`);
       }
@@ -208,16 +243,58 @@ export class ClaimService {
         await this.pools.unlockCapital(claim.policy.poolId, claimDecimal, tx);
       }
       await this.auditService.logPayout('Claim', claimId, beforeState, updatedClaim, undefined, undefined, tx);
+
+      if (claim.policy) {
+        payoutNotification = await this.notifications.prepareNotification(
+          claim.policy.userId,
+          NotificationType.CLAIM_PAID,
+          'Claim Paid',
+          `Your claim ${claimId} has been paid out.`,
+          { claimId, policyId: claim.policy.id, payoutAmount: new Prisma.Decimal(claim.claimAmount).toString() },
+          tx,
+        );
+      }
       return updatedClaim;
     });
+
+    // Commit boundary — queue notification jobs only after the transaction
+    // committed. Best-effort: a queue failure never fails the payout.
+    await this.notifications.dispatchPrepared(payoutNotification);
+
+    return result;
   }
 
   async createClaim(policyId: string, claimAmount: Prisma.Decimal): Promise<Claim> {
-    return await this.prisma.$transaction(async tx => {
+    let createdNotification: PreparedNotification | null = null;
+
+    const created = await this.prisma.$transaction(async tx => {
+      const policy = await tx.insurancePolicy.findUnique({
+        where: { id: policyId },
+        select: { id: true, userId: true },
+      });
+      if (!policy) {
+        throw new BadRequestException(`Policy ${policyId} not found`);
+      }
+
       const created = await this.claimRepository.createClaim({ policyId, claimAmount, status: ClaimStatus.PENDING }, tx);
       updateTracingContext({ entityId: created.id });
       await this.auditService.logCreate('Claim', created.id, created, undefined, undefined, tx);
+
+      createdNotification = await this.notifications.prepareNotification(
+        policy.userId,
+        NotificationType.CLAIM_CREATED,
+        'Claim Submitted',
+        `Your claim of ${claimAmount.toString()} has been submitted for review.`,
+        { claimId: created.id, policyId },
+        tx,
+      );
       return created;
     });
+
+    // Commit boundary — queue notification jobs only after the transaction
+    // committed. Best-effort: a queue failure never fails claim creation.
+    await this.notifications.dispatchPrepared(createdNotification);
+
+    return created;
   }
 }
