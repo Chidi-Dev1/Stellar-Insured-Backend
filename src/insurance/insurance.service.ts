@@ -9,6 +9,8 @@ import { InsurancePolicy } from '@prisma/client';
 import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
 import { PrismaService } from '../prisma.service';
 import { updateTracingContext } from '../common/tracing/tracing-context';
+import { NotificationService, PreparedNotification } from '../notification/services/notification.service';
+import { NotificationType } from '../notification/enums/notification-type.enum';
 
 @Injectable()
 export class InsuranceService {
@@ -20,6 +22,7 @@ export class InsuranceService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly policyRepository: InsurancePolicyRepository,
+    private readonly notifications: NotificationService,
   ) {}
 
   async purchasePolicy(
@@ -35,48 +38,55 @@ export class InsuranceService {
       throw new BadRequestException('Coverage amount must be positive');
     }
 
-    try {
-      return await this.prisma.$transaction(async tx => {
-        // Check if user already has an active policy for this pool to prevent duplicates (idempotent operation)
-        const existingPolicy = await tx.insurancePolicy.findFirst({
-          where: {
-            userId,
-            poolId,
-            status: {
-              in: [PolicyStatus.ACTIVE, PolicyStatus.PENDING],
-            },
+    // The idempotency key store is owned by the interceptor (each state
+    // transition is its own atomic write), so the domain transaction below
+    // never touches it.
+    let purchaseNotification: PreparedNotification | null = null;
+
+    const created = await this.prisma.$transaction(async tx => {
+      const existingPolicy = await tx.insurancePolicy.findFirst({
+        where: {
+          userId,
+          poolId,
+          status: {
+            in: [PolicyStatus.ACTIVE, PolicyStatus.PENDING],
           },
-        });
-
-        if (existingPolicy) {
-          return existingPolicy;
-        }
-
-        const premium = this.pricing.calculatePremium(riskType, coverageAmount);
-        await this.pools.lockCapital(poolId, coverageAmount, tx);
-        const created = await this.policyRepository.createPolicy(
-          { userId, poolId, riskType, coverageAmount, premium },
-          tx,
-        );
-
-        const created = await tx.insurancePolicy.create({
-          data: {
-            userId,
-            poolId,
-            riskType,
-            coverageAmount,
-            premium,
-          },
-        });
-        updateTracingContext({ entityId: created.id });
-        await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased');
-        return created;
+        },
       });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Purchase policy failed for user ${userId}, pool ${poolId}: ${message}`);
-      throw error;
-    }
+
+      if (existingPolicy) {
+        return existingPolicy;
+      }
+
+      const premium = this.pricing.calculatePremium(riskType, coverageAmount);
+      await this.pools.lockCapital(poolId, coverageAmount, tx);
+      const created = await this.policyRepository.createPolicy(
+        { userId, poolId, riskType, coverageAmount, premium },
+        tx,
+      );
+
+      updateTracingContext({ entityId: created.id });
+      await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased', tx);
+
+      // Persist the notification row inside the same transaction so it can
+      // never reference an uncommitted policy. Queue dispatch happens only
+      // after the transaction commits, below.
+      purchaseNotification = await this.notifications.prepareNotification(
+        userId,
+        NotificationType.POLICY_PURCHASED,
+        'Policy Purchased',
+        `Your ${riskType} policy is now active with coverage of ${coverageAmount.toString()}.`,
+        { policyId: created.id, riskType, coverageAmount: coverageAmount.toString() },
+        tx,
+      );
+      return created;
+    });
+
+    // Commit boundary — queue notification jobs only after the transaction
+    // committed. Best-effort: a queue failure never fails the purchase.
+    await this.notifications.dispatchPrepared(purchaseNotification);
+
+    return created;
   }
 
   async cancelPolicy(policyId: string): Promise<InsurancePolicy> {
@@ -86,7 +96,6 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
-      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
         return policy;
       }
@@ -105,7 +114,6 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
-      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
         return policy;
       }

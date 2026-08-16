@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './services/notification.service';
+import { InsuranceModule } from '../insurance/insurance.module';
 import { EmailService } from './services/email.service';
 import { WebPushService } from './services/web-push.service';
 import { DeadlineAlertTask } from './tasks/deadline-alert.task';
@@ -19,7 +20,12 @@ import {
 } from '../common/repositories/project.repository';
 
 @Module({
-  imports: [DatabaseModule, UserModule, QueueModule],
+  imports: [
+    DatabaseModule,
+    forwardRef(() => UserModule),
+    forwardRef(() => InsuranceModule),
+    QueueModule,
+  ],
   controllers: [NotificationController],
   providers: [
     // Repositories

@@ -17,6 +17,24 @@ import {
 import { TransactionClient } from '../../common/repositories/repository.interface';
 import { getCorrelationId } from '../../common/tracing/tracing-context';
 
+/**
+ * Everything `prepareNotification` produced that still needs to happen after
+ * the surrounding database transaction commits. Carries only the data needed
+ * to enqueue Bull jobs — never a handle to a DB client.
+ */
+export interface PreparedNotification {
+  email?: {
+    outboxId: string;
+    to: string;
+    subject: string;
+    html: string;
+  };
+  push?: {
+    subscription: webpush.PushSubscription;
+    payload: PushJobData['payload'];
+  };
+}
+
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
@@ -34,6 +52,134 @@ export class NotificationService {
     private readonly pushQueue: Queue<PushJobData>,
   ) {}
 
+  /**
+   * Transactional half of a notification: persists the Notification row and,
+   * when email delivery is enabled, the durable EmailOutbox row — both through
+   * the supplied `tx` so they commit atomically with the entity they describe.
+   *
+   * Queue jobs are deliberately NOT added here; call `dispatchPrepared` after
+   * the surrounding transaction commits. Bull jobs cannot be rolled back, so
+   * enqueuing inside a transaction that later rolls back would notify users
+   * about entities that never came into existence.
+   *
+   * Returns `null` when the user cannot be resolved or their settings opt out.
+   */
+  async prepareNotification(
+    userId: string,
+    type: NotificationType,
+    title: string,
+    message: string,
+    data?: Prisma.InputJsonValue,
+    tx?: TransactionClient,
+  ): Promise<PreparedNotification | null> {
+    validateEnum(NotificationType, type, 'NotificationType');
+
+    let contactData;
+    try {
+      contactData = await this.userService.getDecryptedContact(userId);
+    } catch {
+      this.logger.warn(`User ${userId} not found for notification`);
+      return null;
+    }
+
+    let settings = contactData.notificationSettings;
+    if (!settings) {
+      settings = await this.notificationSettingRepository.upsertForUser(userId, tx);
+    }
+
+    if (type === 'CONTRIBUTION' && !settings.notifyContributions) return null;
+    if (type === 'MILESTONE' && !settings.notifyMilestones) return null;
+    if (type === 'DEADLINE' && !settings.notifyDeadlines) return null;
+
+    await this.notificationRepository.createNotification(
+      { userId, type, title, message, data },
+      tx,
+    );
+
+    const prepared: PreparedNotification = {};
+
+    if (settings.emailEnabled && contactData.email) {
+      const outbox = await this.emailOutboxRepository.createOutbox(
+        { to: contactData.email, subject: title, html: `<p>${message}</p>`, status: 'PENDING' },
+        tx,
+      );
+      prepared.email = {
+        outboxId: outbox.id,
+        to: outbox.to,
+        subject: outbox.subject,
+        html: outbox.html,
+      };
+    }
+
+    const pushSubscription = this.getPushSubscription(contactData.pushSubscription);
+    if (settings.pushEnabled && pushSubscription) {
+      prepared.push = {
+        subscription: pushSubscription,
+        payload: { title, body: message, data },
+      };
+    }
+
+    return prepared;
+  }
+
+  /**
+   * Post-commit half of a notification: enqueues the email (referencing the
+   * already-committed outbox row) and/or web-push job. Best-effort by design —
+   * a failing queue must never fail the business operation that already
+   * committed, and must never flip an idempotency key to FAILED. The durable
+   * EmailOutbox row doubles as the retry source for EmailRetryTask.
+   */
+  async dispatchPrepared(
+    prepared: PreparedNotification | PreparedNotification[] | null | undefined,
+  ): Promise<void> {
+    const items = prepared ? (Array.isArray(prepared) ? prepared : [prepared]) : [];
+    for (const item of items) {
+      if (item.email) {
+        try {
+          await this.emailQueue.add(
+            {
+              outboxId: item.email.outboxId,
+              to: item.email.to,
+              subject: item.email.subject,
+              html: item.email.html,
+              correlationId: getCorrelationId(),
+            },
+            {
+              attempts: 5,
+              backoff: { type: 'exponential', delay: 5000 },
+              removeOnComplete: true,
+              removeOnFail: false,
+            },
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Failed to enqueue email for outbox ${item.email.outboxId}: ${message}`);
+        }
+      }
+
+      if (item.push) {
+        try {
+          await this.pushQueue.add(
+            {
+              subscription: item.push.subscription,
+              payload: item.push.payload,
+              correlationId: getCorrelationId(),
+            },
+            { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Failed to enqueue push notification: ${message}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Convenience wrapper for callers with no surrounding transaction (indexer
+   * event handlers, scheduled tasks, the notification controller): persists
+   * the rows and dispatches the jobs immediately.
+   */
   async notify(
     userId: string,
     type: NotificationType,
@@ -42,73 +188,8 @@ export class NotificationService {
     data?: Prisma.InputJsonValue,
     tx?: TransactionClient,
   ): Promise<void> {
-    validateEnum(NotificationType, type, 'NotificationType');
-
-    let contactData;
-    try {
-      contactData = await this.userService.getDecryptedContact(userId);
-    } catch {
-      this.logger.warn(`User ${userId} not found for notification`);
-      return;
-    }
-
-    let settings = contactData.notificationSettings;
-    if (!settings) {
-      settings = await this.notificationSettingRepository.upsertForUser(userId, tx);
-    }
-
-    if (type === 'CONTRIBUTION' && !settings.notifyContributions) return;
-    if (type === 'MILESTONE' && !settings.notifyMilestones) return;
-    if (type === 'DEADLINE' && !settings.notifyDeadlines) return;
-
-    await this.notificationRepository.createNotification(
-      { userId, type, title, message, data },
-      tx,
-    );
-
-    if (settings.emailEnabled && contactData.email) {
-      await this.enqueueEmail(contactData.email, title, `<p>${message}</p>`, tx);
-    }
-
-    const pushSubscription = this.getPushSubscription(contactData.pushSubscription);
-    if (settings.pushEnabled && pushSubscription) {
-      await this.pushQueue.add(
-        {
-          subscription: pushSubscription,
-          payload: { title, body: message, data },
-          correlationId: getCorrelationId(),
-        },
-        { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
-      );
-    }
-  }
-
-  async enqueueEmail(
-    to: string,
-    subject: string,
-    html: string,
-    tx?: TransactionClient,
-  ): Promise<void> {
-    const outbox = await this.emailOutboxRepository.createOutbox(
-      { to, subject, html, status: 'PENDING' },
-      tx,
-    );
-
-    await this.emailQueue.add(
-      {
-        outboxId: outbox.id,
-        to: outbox.to,
-        subject: outbox.subject,
-        html: outbox.html,
-        correlationId: getCorrelationId(),
-      },
-      {
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
-    );
+    const prepared = await this.prepareNotification(userId, type, title, message, data, tx);
+    await this.dispatchPrepared(prepared);
   }
 
   private getPushSubscription(value: Prisma.JsonValue | null): webpush.PushSubscription | null {

@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AuditService } from './services/audit.service';
 import { InsurancePoolRepository } from '../common/repositories/insurance-pool.repository';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma.service';
 
 interface MockInsurancePoolRepository {
   findByIdRequired: jest.Mock;
@@ -17,10 +18,15 @@ interface MockAuditService {
   logUnlockCapital: jest.Mock;
 }
 
+interface MockPrismaService {
+  $transaction: jest.Mock;
+}
+
 describe('PoolService', () => {
   let service: PoolService;
   let poolRepository: MockInsurancePoolRepository;
   let auditService: MockAuditService;
+  let prisma: MockPrismaService;
 
   const mockPool = {
     id: 'pool-1',
@@ -46,9 +52,14 @@ describe('PoolService', () => {
       logUnlockCapital: jest.fn(),
     };
 
+    prisma = {
+      $transaction: jest.fn().mockImplementation(async (fn: any) => fn()),
+    };
+
     service = new PoolService(
       poolRepository as unknown as InsurancePoolRepository,
       auditService as unknown as AuditService,
+      prisma as unknown as PrismaService,
     );
     jest.clearAllMocks();
   });
@@ -81,7 +92,7 @@ describe('PoolService', () => {
       expect(poolRepository.incrementCapital).toHaveBeenCalledWith(
         'pool-1',
         new Prisma.Decimal(5000),
-        undefined,
+        expect.any(Object),
       );
       expect(result.capital).toEqual(new Prisma.Decimal(15000));
     });
@@ -100,7 +111,7 @@ describe('PoolService', () => {
         expect.any(Object),
         undefined,
         undefined,
-        undefined,
+        expect.any(Object),
       );
     });
   });
@@ -133,7 +144,7 @@ describe('PoolService', () => {
       expect(poolRepository.incrementLockedCapital).toHaveBeenCalledWith(
         'pool-1',
         new Prisma.Decimal(1000),
-        undefined,
+        expect.any(Object),
       );
       expect(result.lockedCapital).toEqual(new Prisma.Decimal(3000));
     });
@@ -160,7 +171,7 @@ describe('PoolService', () => {
       await expect(service.unlockCapital('pool-1', new Prisma.Decimal(0))).rejects.toThrow(
         BadRequestException,
       );
-      await expect(service.unlockCapital('pool-1', new Prisma.Decimal(-50))).rejects.toThrow(
+      await expect(service.unlockCapital('pool-1', new Prisma.Decimal(-100))).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -168,7 +179,7 @@ describe('PoolService', () => {
     it('should throw NotFoundException if pool is not found', async () => {
       poolRepository.findByIdRequired.mockResolvedValue(null);
 
-      await expect(service.unlockCapital('nonexistent', new Prisma.Decimal(1000))).rejects.toThrow(
+      await expect(service.unlockCapital('nonexistent', new Prisma.Decimal(500))).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -183,13 +194,12 @@ describe('PoolService', () => {
       expect(poolRepository.decrementLockedCapital).toHaveBeenCalledWith(
         'pool-1',
         new Prisma.Decimal(1000),
-        undefined,
+        expect.any(Object),
       );
       expect(result.lockedCapital).toEqual(new Prisma.Decimal(1000));
     });
 
     it('should enforce availableCapital invariant', async () => {
-      // capital=500, lockedCapital=1000 → available = -500 → violation
       const updatedPool = {
         ...mockPool,
         capital: new Prisma.Decimal(500),
@@ -218,7 +228,7 @@ describe('PoolService', () => {
         expect.any(Object),
         undefined,
         undefined,
-        undefined,
+        expect.any(Object),
       );
     });
   });
