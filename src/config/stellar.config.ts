@@ -18,8 +18,6 @@ export interface IndexerConfig {
   startLedger?: number;
   reorgDepthThreshold: number;
   maxEventsPerFetch: number;
-  retryAttempts: number;
-  retryDelayMs: number;
 }
 
 export default registerAs('stellar', () => ({
@@ -42,6 +40,4 @@ export const indexerConfig = registerAs('indexer', () => ({
     : undefined,
   reorgDepthThreshold: parseInt(process.env.INDEXER_REORG_DEPTH_THRESHOLD || '5', 10),
   maxEventsPerFetch: parseInt(process.env.INDEXER_MAX_EVENTS_PER_FETCH || '100', 10),
-  retryAttempts: parseInt(process.env.INDEXER_RETRY_ATTEMPTS || '3', 10),
-  retryDelayMs: parseInt(process.env.INDEXER_RETRY_DELAY_MS || '1000', 10),
 }));

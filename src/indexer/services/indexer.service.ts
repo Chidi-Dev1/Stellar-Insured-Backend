@@ -13,6 +13,7 @@ import { QuarantinedEventRepository } from '../../common/repositories/indexer.re
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
 import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
 import { withResilience } from '../../common/resilience/resilience';
+import { RetryOptions } from '../../common/resilience/retry';
 import { STELLAR_RPC_POLICY } from '../../common/resilience/resilience.constants';
 
 /**
@@ -135,7 +136,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       const health = await withResilience(
         this.rpcBreaker,
         () => this.rpc.getHealth(),
-        { retry: STELLAR_RPC_POLICY.retry },
+        { retry: this.rpcRetryPolicy() },
       );
       this.logger.log(`RPC Health: ${health.status}`);
 
@@ -317,7 +318,7 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       const response = await withResilience(
         this.rpcBreaker,
         () => this.rpc.getEvents(request),
-        { retry: STELLAR_RPC_POLICY.retry },
+        { retry: this.rpcRetryPolicy() },
       );
 
       if (response.events) {
@@ -499,13 +500,30 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * STELLAR_RPC_POLICY retry config with indexer logging, so RPC degradation
+   * stays visible (the old manual retry loop logged every attempt).
+   */
+  private rpcRetryPolicy(): RetryOptions {
+    return {
+      ...STELLAR_RPC_POLICY.retry,
+      onRetry: (error: unknown, attempt: number, delayMs: number) => {
+        this.logger.warn(
+          `Stellar RPC request failed (attempt ${attempt}), retrying in ${delayMs}ms: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      },
+    };
+  }
+
+  /**
    * Get latest ledger from RPC
    */
   private async getLatestLedger(): Promise<number> {
     const latestLedger = await withResilience(
       this.rpcBreaker,
       () => this.rpc.getLatestLedger(),
-      { retry: STELLAR_RPC_POLICY.retry },
+      { retry: this.rpcRetryPolicy() },
     );
     return latestLedger.sequence;
   }
