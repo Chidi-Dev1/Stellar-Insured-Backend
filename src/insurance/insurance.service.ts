@@ -9,8 +9,6 @@ import { InsurancePolicy } from '@prisma/client';
 import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
 import { PrismaService } from '../prisma.service';
 import { updateTracingContext } from '../common/tracing/tracing-context';
-import { ModuleRef } from '@nestjs/core';
-import { NotificationService } from '../notification/services/notification.service';
 
 @Injectable()
 export class InsuranceService {
@@ -22,7 +20,6 @@ export class InsuranceService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly policyRepository: InsurancePolicyRepository,
-    private readonly moduleRef: ModuleRef,
   ) {}
 
   async purchasePolicy(
@@ -64,20 +61,6 @@ export class InsuranceService {
       await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased', tx);
       return created;
     });
-
-    try {
-      const notificationService = this.moduleRef.get(NotificationService, { strict: false });
-      if (notificationService) {
-        await notificationService.notify(
-          userId,
-          'SYSTEM',
-          'Policy Purchased',
-          `Your policy for pool ${poolId} has been created successfully.`,
-        );
-      }
-    } catch (err) {
-      this.logger.warn(`Failed to queue notification for policy purchase: ${err instanceof Error ? err.message : err}`);
-    }
 
     return created;
   }
