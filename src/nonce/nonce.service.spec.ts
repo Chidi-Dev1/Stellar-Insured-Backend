@@ -114,4 +114,39 @@ describe('NonceService', () => {
       expect(cache.del).not.toHaveBeenCalled();
     });
   });
+
+  describe('chaos — Redis (cache) outage', () => {
+    it('retries transient failures then throws the underlying error', async () => {
+      cache.set.mockRejectedValue(new Error('redis down'));
+
+      await expect(service.generateNonce()).rejects.toThrow('redis down');
+      // REDIS_NONCE_POLICY: 2 attempts per store write.
+      expect(cache.set).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails fast once the circuit is open instead of hanging', async () => {
+      cache.set.mockRejectedValue(new Error('redis down'));
+
+      let openError: unknown;
+      for (let i = 0; i < 10 && !openError; i++) {
+        try {
+          await service.generateNonce();
+        } catch (error) {
+          if ((error as { code?: string })?.code === 'EOPENBREAKER') {
+            openError = error;
+          }
+        }
+      }
+
+      expect(openError).toBeDefined();
+    });
+
+    it('throws when the Redis read fails during consumption', async () => {
+      cache.get.mockRejectedValue(new Error('redis down'));
+
+      await expect(service.consumeNonce('valid-nonce')).rejects.toThrow(
+        'redis down',
+      );
+    });
+  });
 });

@@ -11,6 +11,9 @@ import { SorobanEvent, ParsedContractEvent, ContractEventType } from '../types/e
 import { LedgerInfo } from '../types/ledger.types';
 import { QuarantinedEventRepository } from '../../common/repositories/indexer.repository';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
+import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import { withResilience } from '../../common/resilience/resilience';
+import { STELLAR_RPC_POLICY } from '../../common/resilience/resilience.constants';
 
 /**
  * Main indexer service that polls Stellar RPC for contract events
@@ -23,9 +26,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private readonly network: string;
   private pollIntervalMs: number;
   private readonly maxEventsPerFetch: number;
-  private readonly retryAttempts: number;
-  private readonly retryDelayMs: number;
   private readonly contractIds: string[];
+  private readonly rpcBreaker: CircuitBreaker;
 
   private isRunning = false;
   private isShuttingDown = false;
@@ -46,13 +48,18 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
     );
     this.pollIntervalMs = this.configService.get<number>('INDEXER_POLL_INTERVAL_MS', 5000);
     this.maxEventsPerFetch = this.configService.get<number>('INDEXER_MAX_EVENTS_PER_FETCH', 100);
-    this.retryAttempts = this.configService.get<number>('INDEXER_RETRY_ATTEMPTS', 3);
-    this.retryDelayMs = this.configService.get<number>('INDEXER_RETRY_DELAY_MS', 1000);
 
     // Initialize RPC client
     this.rpc = new SorobanRpc.Server(rpcUrl, {
       allowHttp: rpcUrl.startsWith('http://'),
     });
+
+    // Circuit breaker + retry policy for every Stellar RPC call. When the RPC
+    // endpoint degrades, polling fails fast instead of hanging the indexer.
+    this.rpcBreaker = createCircuitBreaker(
+      STELLAR_RPC_POLICY.circuitBreaker.name,
+      STELLAR_RPC_POLICY.circuitBreaker,
+    );
 
     // Get contract IDs to monitor
     this.contractIds = this.getContractIds();
@@ -125,7 +132,11 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private async initializeIndexer(): Promise<void> {
     try {
       // Test RPC connection
-      const health = await this.rpc.getHealth();
+      const health = await withResilience(
+        this.rpcBreaker,
+        () => this.rpc.getHealth(),
+        { retry: STELLAR_RPC_POLICY.retry },
+      );
       this.logger.log(`RPC Health: ${health.status}`);
 
       // Get latest ledger
@@ -210,8 +221,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`Polling events from ledger ${startLedger} to ${latestLedger}`);
 
-      // Fetch events with retry logic
-      const events = await this.fetchEventsWithRetry(startLedger, latestLedger);
+      // Fetch events (retries + circuit breaker applied inside fetchEvents)
+      const events = await this.fetchEvents(startLedger, latestLedger);
 
       if (events.length === 0) {
         this.logger.debug('No events found in ledger range');
@@ -269,36 +280,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Fetch events from RPC with retry logic
-   */
-  private async fetchEventsWithRetry(
-    startLedger: number,
-    endLedger: number,
-  ): Promise<SorobanEvent[]> {
-    let lastError: Error | null = null;
-
-    for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
-      try {
-        return await this.fetchEvents(startLedger, endLedger);
-      } catch (error) {
-        lastError = error;
-        this.logger.warn(`Fetch attempt ${attempt}/${this.retryAttempts} failed: ${error.message}`);
-
-        if (attempt < this.retryAttempts) {
-          const delay = this.retryDelayMs * Math.pow(2, attempt - 1); // Exponential backoff
-          this.logger.log(`Retrying in ${delay}ms...`);
-          await this.sleep(delay);
-        }
-      }
-    }
-
-    throw new Error(
-      `Failed to fetch events after ${this.retryAttempts} attempts: ${lastError?.message}`,
-    );
-  }
-
-  /**
-   * Fetch events from Soroban RPC
+   * Fetch events from Soroban RPC — every getEvents call runs through the
+   * shared circuit breaker with exponential-backoff retries, so a degraded
+   * RPC endpoint trips the breaker instead of wedging the poll loop.
    */
   private async fetchEvents(startLedger: number, endLedger: number): Promise<SorobanEvent[]> {
     const events: SorobanEvent[] = [];
@@ -330,7 +314,11 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         cursor,
       };
 
-      const response = await this.rpc.getEvents(request);
+      const response = await withResilience(
+        this.rpcBreaker,
+        () => this.rpc.getEvents(request),
+        { retry: STELLAR_RPC_POLICY.retry },
+      );
 
       if (response.events) {
         for (const event of response.events) {
@@ -514,7 +502,11 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
    * Get latest ledger from RPC
    */
   private async getLatestLedger(): Promise<number> {
-    const latestLedger = await this.rpc.getLatestLedger();
+    const latestLedger = await withResilience(
+      this.rpcBreaker,
+      () => this.rpc.getLatestLedger(),
+      { retry: STELLAR_RPC_POLICY.retry },
+    );
     return latestLedger.sequence;
   }
 

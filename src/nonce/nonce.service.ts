@@ -7,6 +7,9 @@ import {
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { randomBytes } from 'crypto';
+import { createCircuitBreaker, CircuitBreaker } from '../common/resilience/circuit-breaker';
+import { withResilience } from '../common/resilience/resilience';
+import { REDIS_NONCE_POLICY } from '../common/resilience/resilience.constants';
 
 /**
  * NonceService
@@ -33,6 +36,15 @@ export class NonceService {
 
   private readonly NONCE_PREFIX = 'nonce:';
 
+  /**
+   * Circuit breaker protecting the Redis-backed cache: when Redis degrades,
+   * nonce operations fail fast instead of hanging or retrying indefinitely.
+   */
+  private readonly redisBreaker: CircuitBreaker = createCircuitBreaker(
+    REDIS_NONCE_POLICY.circuitBreaker.name,
+    REDIS_NONCE_POLICY.circuitBreaker,
+  );
+
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {}
 
   /**
@@ -44,7 +56,11 @@ export class NonceService {
     const key = this.buildKey(nonce);
 
     // Store with TTL — value is the creation timestamp for audit purposes.
-    await this.cache.set(key, Date.now().toString(), this.NONCE_TTL_MS);
+    await withResilience(
+      this.redisBreaker,
+      () => this.cache.set(key, Date.now().toString(), this.NONCE_TTL_MS),
+      { retry: REDIS_NONCE_POLICY.retry },
+    );
 
     this.logger.debug(`Nonce generated: ${nonce}`);
     return nonce;
@@ -65,7 +81,11 @@ export class NonceService {
     }
 
     const key = this.buildKey(nonce);
-    const stored = await this.cache.get<string>(key);
+    const stored = await withResilience(
+      this.redisBreaker,
+      () => this.cache.get<string>(key),
+      { retry: REDIS_NONCE_POLICY.retry },
+    );
 
     if (!stored) {
       this.logger.warn(`Nonce validation failed — unknown or expired: ${nonce}`);
@@ -75,7 +95,11 @@ export class NonceService {
     }
 
     // Delete immediately so it cannot be replayed.
-    await this.cache.del(key);
+    await withResilience(
+      this.redisBreaker,
+      () => this.cache.del(key),
+      { retry: REDIS_NONCE_POLICY.retry },
+    );
 
     this.logger.debug(`Nonce consumed: ${nonce}`);
     return true;
@@ -87,7 +111,11 @@ export class NonceService {
    */
   async isNonceValid(nonce: string): Promise<boolean> {
     if (!nonce) return false;
-    const stored = await this.cache.get<string>(this.buildKey(nonce));
+    const stored = await withResilience(
+      this.redisBreaker,
+      () => this.cache.get<string>(this.buildKey(nonce)),
+      { retry: REDIS_NONCE_POLICY.retry },
+    );
     return stored !== null && stored !== undefined;
   }
 

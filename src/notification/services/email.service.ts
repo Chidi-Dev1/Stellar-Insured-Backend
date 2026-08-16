@@ -9,6 +9,9 @@ import { PrismaService } from '../../prisma.service';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
 
 import { ConfigService } from '@nestjs/config';
+import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import { withResilience } from '../../common/resilience/resilience';
+import { SENDGRID_POLICY } from '../../common/resilience/resilience.constants';
 
 @Injectable()
 @Processor(QUEUE_NAMES.EMAIL)
@@ -16,6 +19,16 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly apiKey: string;
   private readonly fromEmail: string;
+
+  /**
+   * Circuit breaker + retry for SendGrid. A degraded SendGrid trips the
+   * breaker so the Bull worker fails fast and retries the job later (via the
+   * job's own backoff) instead of hammering the API.
+   */
+  private readonly emailBreaker: CircuitBreaker = createCircuitBreaker(
+    SENDGRID_POLICY.circuitBreaker.name,
+    SENDGRID_POLICY.circuitBreaker,
+  );
 
   constructor(
     private readonly emailOutboxRepository: EmailOutboxRepository,
@@ -56,7 +69,11 @@ export class EmailService {
     }
 
     try {
-      await sgMail.send({ to, from: this.fromEmail, subject, html });
+      await withResilience(
+        this.emailBreaker,
+        () => sgMail.send({ to, from: this.fromEmail, subject, html }),
+        { retry: SENDGRID_POLICY.retry },
+      );
       await this.emailOutboxRepository.updateStatus(outboxId, {
         status: 'SENT',
         attempts: job.attemptsMade + 1,

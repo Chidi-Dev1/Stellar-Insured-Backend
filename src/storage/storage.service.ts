@@ -26,6 +26,13 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { QUEUE_NAMES, IpfsPinJobData } from '../notification/constants/queue.constants';
+import { createCircuitBreaker, CircuitBreaker } from '../common/resilience/circuit-breaker';
+import { withResilience } from '../common/resilience/resilience';
+import {
+  AWS_S3_POLICY,
+  IPFS_POLICY,
+  BULL_QUEUE_POLICY,
+} from '../common/resilience/resilience.constants';
 
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
@@ -59,6 +66,24 @@ export class StorageService {
   private readonly s3: S3Client;
   private readonly bucket: string;
   private readonly maxFileSize: number;
+
+  /** Circuit breaker + retry for every AWS S3 operation. */
+  private readonly s3Breaker: CircuitBreaker = createCircuitBreaker(
+    AWS_S3_POLICY.circuitBreaker.name,
+    AWS_S3_POLICY.circuitBreaker,
+  );
+
+  /** Circuit breaker + retry for IPFS pin/read operations. */
+  private readonly ipfsBreaker: CircuitBreaker = createCircuitBreaker(
+    IPFS_POLICY.circuitBreaker.name,
+    IPFS_POLICY.circuitBreaker,
+  );
+
+  /** Circuit breaker for Redis-backed Bull queue enqueues. */
+  private readonly queueBreaker: CircuitBreaker = createCircuitBreaker(
+    BULL_QUEUE_POLICY.circuitBreaker.name,
+    BULL_QUEUE_POLICY.circuitBreaker,
+  );
 
   constructor(
     private readonly config: ConfigService,
@@ -147,7 +172,11 @@ export class StorageService {
         ContentType: file.mimetype,
         ContentLength: file.size,
       });
-      const result: PutObjectCommandOutput = await this.s3.send(command);
+      const result: PutObjectCommandOutput = await withResilience(
+        this.s3Breaker,
+        () => this.s3.send(command),
+        { retry: AWS_S3_POLICY.retry },
+      );
       this.logger.log(`Uploaded file to s3://${this.bucket}/${key} (ETag: ${result.ETag})`);
 
       const url = `https://${this.bucket}.s3.${this.config.get<string>('AWS_REGION')}.amazonaws.com/${key}`;
@@ -161,7 +190,11 @@ export class StorageService {
   async getPresignedUrl(key: string, expiresIn: number = DEFAULT_PRESIGN_EXPIRY): Promise<string> {
     try {
       const command = new PutObjectCommand({ Bucket: this.bucket, Key: key });
-      const url = await getSignedUrl(this.s3, command, { expiresIn });
+      const url = await withResilience(
+        this.s3Breaker,
+        () => getSignedUrl(this.s3, command, { expiresIn }),
+        { retry: AWS_S3_POLICY.retry },
+      );
       this.logger.log(`Generated presigned URL for key "${key}" (expires in ${expiresIn}s)`);
       return url;
     } catch (error) {
@@ -173,7 +206,11 @@ export class StorageService {
   async deleteObject(key: string): Promise<void> {
     try {
       const command = new DeleteObjectCommand({ Bucket: this.bucket, Key: key });
-      await this.s3.send(command);
+      await withResilience(
+        this.s3Breaker,
+        () => this.s3.send(command),
+        { retry: AWS_S3_POLICY.retry },
+      );
       this.logger.log(`Deleted object s3://${this.bucket}/${key}`);
     } catch (error) {
       this.logger.error(`Failed to delete object "${key}"`, error);
@@ -188,14 +225,19 @@ export class StorageService {
   async queuePinProjectMetadata(
     metadata: Record<string, unknown>,
   ): Promise<void> {
-    await this.ipfsPinQueue.add(
-      { metadata },
-      {
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
+    await withResilience(
+      this.queueBreaker,
+      () =>
+        this.ipfsPinQueue.add(
+          { metadata },
+          {
+            attempts: 5,
+            backoff: { type: 'exponential', delay: 5000 },
+            removeOnComplete: true,
+            removeOnFail: false,
+          },
+        ),
+      { retry: BULL_QUEUE_POLICY.retry },
     );
     this.logger.log('Queued IPFS pin job for project metadata');
   }
@@ -203,7 +245,11 @@ export class StorageService {
   async pinProjectMetadata(metadata: Record<string, unknown>): Promise<string> {
     try {
       const ipfs = await this.getIpfs();
-      const cid = await ipfs.add(JSON.stringify(metadata));
+      const cid = await withResilience(
+        this.ipfsBreaker,
+        () => ipfs.add(JSON.stringify(metadata)),
+        { retry: IPFS_POLICY.retry },
+      );
       this.logger.log(`Pinned metadata with CID: ${cid.path}`);
       return cid.path;
     } catch (error) {
@@ -255,11 +301,17 @@ export class StorageService {
   async verifyIPFSHash(hash: string): Promise<boolean> {
     try {
       const ipfs = await this.getIpfs();
-      const chunks = [];
-      for await (const chunk of ipfs.cat(hash)) {
-        chunks.push(chunk);
-      }
-      return chunks.length > 0;
+      return withResilience(
+        this.ipfsBreaker,
+        async () => {
+          const chunks: unknown[] = [];
+          for await (const chunk of ipfs.cat(hash)) {
+            chunks.push(chunk);
+          }
+          return chunks.length > 0;
+        },
+        { retry: IPFS_POLICY.retry },
+      );
     } catch (error) {
       this.logger.warn(`IPFS hash verification failed for ${hash}`, error);
       return false;

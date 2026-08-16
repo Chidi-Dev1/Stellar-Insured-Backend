@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { CircuitBreaker } from './utils/circuit-breaker';
+import { createCircuitBreaker, CircuitBreaker } from '../common/resilience/circuit-breaker';
+import { withResilience } from '../common/resilience/resilience';
+import { IDEMPOTENCY_DB_POLICY } from '../common/resilience/resilience.constants';
 
 /** Everything the interceptor knows when it claims an idempotency key. */
 export interface IdempotencyClaim {
@@ -37,7 +39,10 @@ export interface IdempotencyKeyRecord {
 @Injectable()
 export class IdempotencyService {
   private readonly logger = new Logger(IdempotencyService.name);
-  private readonly circuitBreaker = new CircuitBreaker();
+  private readonly circuitBreaker: CircuitBreaker = createCircuitBreaker(
+    IDEMPOTENCY_DB_POLICY.circuitBreaker.name,
+    IDEMPOTENCY_DB_POLICY.circuitBreaker,
+  );
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -89,17 +94,19 @@ export class IdempotencyService {
 
   /** Record the cached response after the handler completed successfully. */
   async markCompleted(key: string, response: unknown, statusCode: number): Promise<void> {
-    await this.circuitBreaker.execute(() =>
-      this.prisma.idempotencyKey.update({
-        where: { key },
-        data: {
-          status: 'COMPLETED',
-          response: {
-            data: response,
-            statusCode,
-          } as unknown as Prisma.InputJsonValue,
-        },
-      }),
+    await withResilience(
+      this.circuitBreaker,
+      () =>
+        this.prisma.idempotencyKey.update({
+          where: { key },
+          data: {
+            status: 'COMPLETED',
+            response: {
+              data: response,
+              statusCode,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        }),
     );
   }
 
