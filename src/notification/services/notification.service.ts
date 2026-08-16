@@ -150,10 +150,10 @@ export class NotificationService {
     for (const item of items) {
       if (item.email) {
         try {
-          await withResilience<void>(
+          await withResilience(
             this.queueBreaker,
-            () =>
-              this.emailQueue.add(
+            async () => {
+              await this.emailQueue.add(
                 {
                   outboxId: item.email.outboxId,
                   to: item.email.to,
@@ -167,7 +167,8 @@ export class NotificationService {
                   removeOnComplete: true,
                   removeOnFail: false,
                 },
-              ),
+              );
+            },
             {
               retry: BULL_QUEUE_POLICY.retry,
               // Fail fast when Redis is degraded — the durable EmailOutbox row
@@ -187,17 +188,18 @@ export class NotificationService {
 
       if (item.push) {
         try {
-          await withResilience<void>(
+          await withResilience(
             this.queueBreaker,
-            () =>
-              this.pushQueue.add(
+            async () => {
+              await this.pushQueue.add(
                 {
                   subscription: item.push.subscription,
                   payload: item.push.payload,
                   correlationId: getCorrelationId(),
                 },
                 { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
-              ),
+              );
+            },
             {
               retry: BULL_QUEUE_POLICY.retry,
               fallback: () => {
