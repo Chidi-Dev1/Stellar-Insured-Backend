@@ -6,6 +6,9 @@ import { randomUUID } from 'crypto';
 import { QUEUE_NAMES, PushJobData } from '../constants/queue.constants';
 import { ConfigService } from '@nestjs/config';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
+import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import { withResilience } from '../../common/resilience/resilience';
+import { WEB_PUSH_POLICY } from '../../common/resilience/resilience.constants';
 
 export interface WebPushPayload {
   title: string;
@@ -19,6 +22,16 @@ export class WebPushService {
   private readonly logger = new Logger(WebPushService.name);
 
   private readonly publicKey: string;
+
+  /**
+   * Circuit breaker + retry for VAPID web-push delivery. Expired subscriptions
+   * (410) still stop retrying immediately; other failures trip the breaker so
+   * the worker fails fast and lets Bull back off.
+   */
+  private readonly pushBreaker: CircuitBreaker = createCircuitBreaker(
+    WEB_PUSH_POLICY.circuitBreaker.name,
+    WEB_PUSH_POLICY.circuitBreaker,
+  );
 
   constructor(private readonly configService: ConfigService) {
     this.publicKey = this.configService.get<string>('notification.vapid.publicKey') || '';
@@ -60,7 +73,18 @@ export class WebPushService {
     }
 
     try {
-      await webpush.sendNotification(subscription, JSON.stringify(payload));
+      await withResilience(
+        this.pushBreaker,
+        () => webpush.sendNotification(subscription, JSON.stringify(payload)),
+        {
+          retry: {
+            ...WEB_PUSH_POLICY.retry,
+            // HTTP 410 = subscription no longer valid; never retry those.
+            retryIf: (error) =>
+              (error as { statusCode?: number })?.statusCode !== 410,
+          },
+        },
+      );
       this.logger.log(
         `Push notification sent to endpoint: ${subscription.endpoint}`,
       );

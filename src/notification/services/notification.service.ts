@@ -16,6 +16,9 @@ import {
 } from '../../common/repositories/notification.repository';
 import { TransactionClient } from '../../common/repositories/repository.interface';
 import { getCorrelationId } from '../../common/tracing/tracing-context';
+import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import { withResilience } from '../../common/resilience/resilience';
+import { BULL_QUEUE_POLICY } from '../../common/resilience/resilience.constants';
 
 /**
  * Everything `prepareNotification` produced that still needs to happen after
@@ -38,6 +41,17 @@ export interface PreparedNotification {
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
+
+  /**
+   * Circuit breaker for Redis-backed Bull enqueues (email + push). When Redis
+   * degrades, dispatch fails fast (and stays best-effort) rather than hanging
+   * the business operation that already committed — e.g. an insurance purchase
+   * or claim assessment that calls this after its transaction commits.
+   */
+  private readonly queueBreaker: CircuitBreaker = createCircuitBreaker(
+    BULL_QUEUE_POLICY.circuitBreaker.name,
+    BULL_QUEUE_POLICY.circuitBreaker,
+  );
 
   constructor(
     private readonly notificationRepository: NotificationRepository,
@@ -136,19 +150,34 @@ export class NotificationService {
     for (const item of items) {
       if (item.email) {
         try {
-          await this.emailQueue.add(
-            {
-              outboxId: item.email.outboxId,
-              to: item.email.to,
-              subject: item.email.subject,
-              html: item.email.html,
-              correlationId: getCorrelationId(),
+          await withResilience(
+            this.queueBreaker,
+            async () => {
+              await this.emailQueue.add(
+                {
+                  outboxId: item.email.outboxId,
+                  to: item.email.to,
+                  subject: item.email.subject,
+                  html: item.email.html,
+                  correlationId: getCorrelationId(),
+                },
+                {
+                  attempts: 5,
+                  backoff: { type: 'exponential', delay: 5000 },
+                  removeOnComplete: true,
+                  removeOnFail: false,
+                },
+              );
             },
             {
-              attempts: 5,
-              backoff: { type: 'exponential', delay: 5000 },
-              removeOnComplete: true,
-              removeOnFail: false,
+              retry: BULL_QUEUE_POLICY.retry,
+              // Fail fast when Redis is degraded — the durable EmailOutbox row
+              // is still picked up by EmailRetryTask later.
+              fallback: () => {
+                this.logger.error(
+                  `Email queue is degraded (circuit open) — outbox ${item.email.outboxId} deferred to EmailRetryTask`,
+                );
+              },
             },
           );
         } catch (error) {
@@ -159,13 +188,26 @@ export class NotificationService {
 
       if (item.push) {
         try {
-          await this.pushQueue.add(
-            {
-              subscription: item.push.subscription,
-              payload: item.push.payload,
-              correlationId: getCorrelationId(),
+          await withResilience(
+            this.queueBreaker,
+            async () => {
+              await this.pushQueue.add(
+                {
+                  subscription: item.push.subscription,
+                  payload: item.push.payload,
+                  correlationId: getCorrelationId(),
+                },
+                { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+              );
             },
-            { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+            {
+              retry: BULL_QUEUE_POLICY.retry,
+              fallback: () => {
+                this.logger.error(
+                  'Push queue is degraded (circuit open) — push notification skipped',
+                );
+              },
+            },
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
