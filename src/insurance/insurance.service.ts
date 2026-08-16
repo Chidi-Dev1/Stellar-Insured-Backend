@@ -9,6 +9,8 @@ import { InsurancePolicy } from '@prisma/client';
 import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
 import { PrismaService } from '../prisma.service';
 import { updateTracingContext } from '../common/tracing/tracing-context';
+import { ModuleRef } from '@nestjs/core';
+import { NotificationService } from '../notification/services/notification.service';
 
 @Injectable()
 export class InsuranceService {
@@ -20,6 +22,7 @@ export class InsuranceService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly policyRepository: InsurancePolicyRepository,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   async purchasePolicy(
@@ -35,48 +38,48 @@ export class InsuranceService {
       throw new BadRequestException('Coverage amount must be positive');
     }
 
-    try {
-      return await this.prisma.$transaction(async tx => {
-        // Check if user already has an active policy for this pool to prevent duplicates (idempotent operation)
-        const existingPolicy = await tx.insurancePolicy.findFirst({
-          where: {
-            userId,
-            poolId,
-            status: {
-              in: [PolicyStatus.ACTIVE, PolicyStatus.PENDING],
-            },
+    const created = await this.prisma.$transaction(async tx => {
+      const existingPolicy = await tx.insurancePolicy.findFirst({
+        where: {
+          userId,
+          poolId,
+          status: {
+            in: [PolicyStatus.ACTIVE, PolicyStatus.PENDING],
           },
-        });
-
-        if (existingPolicy) {
-          return existingPolicy;
-        }
-
-        const premium = this.pricing.calculatePremium(riskType, coverageAmount);
-        await this.pools.lockCapital(poolId, coverageAmount, tx);
-        const created = await this.policyRepository.createPolicy(
-          { userId, poolId, riskType, coverageAmount, premium },
-          tx,
-        );
-
-        const created = await tx.insurancePolicy.create({
-          data: {
-            userId,
-            poolId,
-            riskType,
-            coverageAmount,
-            premium,
-          },
-        });
-        updateTracingContext({ entityId: created.id });
-        await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased');
-        return created;
+        },
       });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Purchase policy failed for user ${userId}, pool ${poolId}: ${message}`);
-      throw error;
+
+      if (existingPolicy) {
+        return existingPolicy;
+      }
+
+      const premium = this.pricing.calculatePremium(riskType, coverageAmount);
+      await this.pools.lockCapital(poolId, coverageAmount, tx);
+      const created = await this.policyRepository.createPolicy(
+        { userId, poolId, riskType, coverageAmount, premium },
+        tx,
+      );
+
+      updateTracingContext({ entityId: created.id });
+      await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased', tx);
+      return created;
+    });
+
+    try {
+      const notificationService = this.moduleRef.get(NotificationService, { strict: false });
+      if (notificationService) {
+        await notificationService.notify(
+          userId,
+          'SYSTEM',
+          'Policy Purchased',
+          `Your policy for pool ${poolId} has been created successfully.`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to queue notification for policy purchase: ${err instanceof Error ? err.message : err}`);
     }
+
+    return created;
   }
 
   async cancelPolicy(policyId: string): Promise<InsurancePolicy> {
@@ -86,7 +89,6 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
-      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
         return policy;
       }
@@ -105,7 +107,6 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
-      // If policy is already inactive, return it without performing any mutations (idempotent operation)
       if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
         return policy;
       }
