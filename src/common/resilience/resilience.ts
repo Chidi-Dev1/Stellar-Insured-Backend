@@ -45,7 +45,9 @@ export async function withResilience<T>(
         retry && attempt < attempts && (retry.retryIf ? retry.retryIf(error, attempt) : true);
       if (!shouldRetry) break;
 
-      await sleep(computeBackoffDelay(attempt, retry));
+      const delay = computeBackoffDelay(attempt, retry);
+      retry.onRetry?.(error, attempt, delay);
+      await sleep(delay);
     }
   }
 

@@ -9,6 +9,8 @@ export interface RetryOptions {
   jitter?: boolean;
   /** Decide whether a given failure is retryable. Defaults to retrying all. */
   retryIf?: (error: unknown, attempt: number) => boolean;
+  /** Called before a retry with the failed attempt number and the delay chosen. */
+  onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
 }
 
 /**
@@ -43,7 +45,9 @@ export async function withRetry<T>(
       lastError = error;
       const retryable = options.retryIf ? options.retryIf(error, attempt) : true;
       if (attempt >= options.attempts || !retryable) throw error;
-      await sleep(computeBackoffDelay(attempt, options));
+      const delay = computeBackoffDelay(attempt, options);
+      options.onRetry?.(error, attempt, delay);
+      await sleep(delay);
     }
   }
   throw lastError;

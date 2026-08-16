@@ -2,8 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EmailService } from './email.service';
 import { EmailOutboxRepository } from '../../common/repositories/notification.repository';
 import { ConfigService } from '@nestjs/config';
-import { getQueueToken } from '@nestjs/bull';
-import { QUEUE_NAMES } from '../constants/queue.constants';
 import * as sgMail from '@sendgrid/mail';
 
 // Mock @sendgrid/mail so the constructor doesn't throw in unit test context
@@ -38,10 +36,6 @@ describe('EmailService', () => {
               return undefined;
             }),
           },
-        },
-        {
-          provide: getQueueToken(QUEUE_NAMES.EMAIL),
-          useValue: { add: jest.fn() },
         },
       ],
     }).compile();

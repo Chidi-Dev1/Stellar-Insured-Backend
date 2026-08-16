@@ -168,14 +168,6 @@ class EnvironmentVariables {
 
   @IsNumber()
   @IsOptional()
-  INDEXER_RETRY_ATTEMPTS: number = 3;
-
-  @IsNumber()
-  @IsOptional()
-  INDEXER_RETRY_DELAY_MS: number = 1000;
-
-  @IsNumber()
-  @IsOptional()
   THROTTLE_DEFAULT_TTL: number = 900000;
 
   @IsNumber()
