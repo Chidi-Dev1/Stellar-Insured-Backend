@@ -9,6 +9,8 @@ import { InsurancePolicy } from '@prisma/client';
 import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
 import { PrismaService } from '../prisma.service';
 import { updateTracingContext } from '../common/tracing/tracing-context';
+import { NotificationService, PreparedNotification } from '../notification/services/notification.service';
+import { NotificationType } from '../notification/enums/notification-type.enum';
 
 @Injectable()
 export class InsuranceService {
@@ -20,6 +22,7 @@ export class InsuranceService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly policyRepository: InsurancePolicyRepository,
+    private readonly notifications: NotificationService,
   ) {}
 
   async purchasePolicy(
@@ -34,6 +37,13 @@ export class InsuranceService {
     if (coverageAmount.lte(new Prisma.Decimal(0))) {
       throw new BadRequestException('Coverage amount must be positive');
     }
+
+    // The idempotency key store is deliberately NOT touched here: the
+    // interceptor owns the PENDING -> COMPLETED/FAILED transitions, each as
+    // its own atomic write, so a domain failure never leaves a half-written
+    // key and a key is never flipped to FAILED for an operation that already
+    // committed.
+    let purchaseNotification: PreparedNotification | null = null;
 
     const created = await this.prisma.$transaction(async tx => {
       const existingPolicy = await tx.insurancePolicy.findFirst({
@@ -59,8 +69,24 @@ export class InsuranceService {
 
       updateTracingContext({ entityId: created.id });
       await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased', tx);
+
+      // Persist the notification row inside the same transaction so it can
+      // never reference an uncommitted policy. Queue dispatch happens only
+      // after the transaction commits, below.
+      purchaseNotification = await this.notifications.prepareNotification(
+        userId,
+        NotificationType.POLICY_PURCHASED,
+        'Policy Purchased',
+        `Your ${riskType} policy is now active with coverage of ${coverageAmount.toString()}.`,
+        { policyId: created.id, riskType, coverageAmount: coverageAmount.toString() },
+        tx,
+      );
       return created;
     });
+
+    // Commit boundary — queue notification jobs only after the transaction
+    // committed. Best-effort: a queue failure never fails the purchase.
+    await this.notifications.dispatchPrepared(purchaseNotification);
 
     return created;
   }
