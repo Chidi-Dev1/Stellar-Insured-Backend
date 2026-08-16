@@ -105,7 +105,7 @@ describe('InsuranceService', () => {
           coverageAmount: new Prisma.Decimal(10000),
           premium: new Prisma.Decimal(500),
         },
-        undefined,
+        expect.any(Object),
       );
       expect(result.id).toBe('policy-1');
     });
@@ -133,7 +133,7 @@ describe('InsuranceService', () => {
           coverageAmount: new Prisma.Decimal(10000),
           premium: new Prisma.Decimal(500),
         }),
-        undefined,
+        expect.any(Object),
       );
     });
 
@@ -182,7 +182,7 @@ describe('InsuranceService', () => {
       expect(pools.unlockCapital).toHaveBeenCalledWith(
         'pool-1',
         new Prisma.Decimal(10000),
-        undefined,
+        expect.any(Object),
       );
     });
   });
@@ -227,7 +227,7 @@ describe('InsuranceService', () => {
       expect(pools.unlockCapital).toHaveBeenCalledWith(
         'pool-1',
         new Prisma.Decimal(10000),
-        undefined,
+        expect.any(Object),
       );
     });
   });

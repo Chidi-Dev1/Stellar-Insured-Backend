@@ -4,10 +4,11 @@ import { PolicyStatus } from './enums/policy-status.enum';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { PoolService } from './pool.service';
 import { AuditService } from './services/audit.service';
+import { ReputationService } from '../reputation/reputation.service';
+import { REPUTATION_DELTAS } from '../reputation/reputation.constants';
 import { ClaimRepository } from '../common/repositories/claim.repository';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { ReputationService } from '../reputation/reputation.service';
 
 interface MockClaimRepository {
   findByIdWithPolicy: jest.Mock;
@@ -112,15 +113,26 @@ describe('ClaimService', () => {
         status: ClaimStatus.PENDING,
       };
       claimRepository.createClaim.mockResolvedValue(createdClaim);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
       const result = await service.createClaim('policy-1', new Prisma.Decimal(50000));
 
-      expect(claimRepository.createClaim).toHaveBeenCalledWith({
-        policyId: 'policy-1',
-        claimAmount: new Prisma.Decimal(50000),
-        status: ClaimStatus.PENDING,
-      });
-      expect(auditService.logCreate).toHaveBeenCalledWith('Claim', 'claim-new', createdClaim);
+      expect(claimRepository.createClaim).toHaveBeenCalledWith(
+        {
+          policyId: 'policy-1',
+          claimAmount: new Prisma.Decimal(50000),
+          status: ClaimStatus.PENDING,
+        },
+        expect.any(Object),
+      );
+      expect(auditService.logCreate).toHaveBeenCalledWith(
+        'Claim',
+        'claim-new',
+        createdClaim,
+        undefined,
+        undefined,
+        expect.any(Object),
+      );
       expect(result.claimAmount).toEqual(new Prisma.Decimal(50000));
     });
 
@@ -132,6 +144,7 @@ describe('ClaimService', () => {
   describe('assessClaim', () => {
     it('should throw NotFoundException if claim does not exist', async () => {
       claimRepository.findByIdWithPolicy.mockResolvedValue(null);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
       await expect(service.assessClaim('nonexistent')).rejects.toThrow(NotFoundException);
     });
@@ -144,34 +157,71 @@ describe('ClaimService', () => {
 
     it('should reject claim if policy is not active', async () => {
       const inactivePolicy = { ...mockPolicy, status: PolicyStatus.EXPIRED };
+      const rejectedClaim = {
+        ...mockClaim,
+        status: ClaimStatus.REJECTED,
+        policy: inactivePolicy,
+      };
       claimRepository.findByIdWithPolicy.mockResolvedValue({
         ...mockClaim,
         policy: inactivePolicy,
       });
+      claimRepository.updateStatusWithPolicy.mockResolvedValue(rejectedClaim);
       claimRepository.countDuplicates.mockResolvedValue(0);
       claimRepository.countRecent.mockResolvedValue(0);
-      claimRepository.updateStatusWithPolicy.mockResolvedValue({
-        ...mockClaim,
-        status: ClaimStatus.REJECTED,
-        policy: inactivePolicy,
-      });
+      pools.unlockCapital.mockResolvedValue(undefined);
       prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(BadRequestException);
+
+      expect(claimRepository.updateStatusWithPolicy).toHaveBeenCalledWith(
+        'claim-1',
+        ClaimStatus.REJECTED,
+        {},
+        expect.any(Object),
+      );
+      expect(auditService.logReject).toHaveBeenCalledWith(
+        'Claim',
+        'claim-1',
+        expect.any(Object),
+        rejectedClaim,
+        'Policy is not active: EXPIRED',
+        expect.any(Object),
+      );
+      expect(reputationService.adjustReputation).toHaveBeenCalledWith(
+        'user-1',
+        REPUTATION_DELTAS.CLAIM_REJECTED,
+        'Claim claim-1 rejected: Policy is not active: EXPIRED',
+        expect.any(Object),
+      );
     });
 
     it('should reject claim if claim amount exceeds coverage', async () => {
       const claim = { ...mockClaim, claimAmount: new Prisma.Decimal(200000) };
+      const rejectedClaim = { ...claim, status: ClaimStatus.REJECTED };
       claimRepository.findByIdWithPolicy.mockResolvedValue(claim);
+      claimRepository.updateStatusWithPolicy.mockResolvedValue(rejectedClaim);
       claimRepository.countDuplicates.mockResolvedValue(0);
       claimRepository.countRecent.mockResolvedValue(0);
-      claimRepository.updateStatusWithPolicy.mockResolvedValue({
-        ...claim,
-        status: ClaimStatus.REJECTED,
-      });
+      pools.unlockCapital.mockResolvedValue(undefined);
       prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
       await expect(service.assessClaim('claim-1')).rejects.toThrow(BadRequestException);
+
+      expect(auditService.logReject).toHaveBeenCalledWith(
+        'Claim',
+        'claim-1',
+        expect.any(Object),
+        rejectedClaim,
+        'Claim amount exceeds coverage',
+        expect.any(Object),
+      );
+      expect(reputationService.adjustReputation).toHaveBeenCalledWith(
+        'user-1',
+        REPUTATION_DELTAS.CLAIM_REJECTED,
+        'Claim claim-1 rejected: Claim amount exceeds coverage',
+        expect.any(Object),
+      );
     });
 
     it('should approve claim when all checks pass', async () => {
@@ -181,9 +231,7 @@ describe('ClaimService', () => {
         payoutAmount: new Prisma.Decimal(50000),
       };
 
-      claimRepository.findByIdWithPolicy
-        .mockResolvedValueOnce(mockClaim) // assessClaim initial fetch
-        .mockResolvedValueOnce(mockClaim); // verifyOracle fetch
+      claimRepository.findByIdWithPolicy.mockResolvedValue(mockClaim);
       claimRepository.countDuplicates.mockResolvedValue(0);
       claimRepository.countRecent.mockResolvedValue(0);
       claimRepository.updateStatusWithPolicy.mockResolvedValue(approvedClaim);
@@ -192,13 +240,27 @@ describe('ClaimService', () => {
       const result = await service.assessClaim('claim-1');
 
       expect(result.status).toBe(ClaimStatus.APPROVED);
-      expect(auditService.logApprove).toHaveBeenCalled();
+      expect(auditService.logApprove).toHaveBeenCalledWith(
+        'Claim',
+        'claim-1',
+        expect.any(Object),
+        approvedClaim,
+        undefined,
+        undefined,
+        expect.any(Object),
+      );
+      expect(reputationService.adjustReputation).toHaveBeenCalledWith(
+        'user-1',
+        REPUTATION_DELTAS.CLAIM_APPROVED,
+        'Claim claim-1 approved',
+        expect.any(Object),
+      );
     });
 
     it('should detect fraud and log when >= 2 indicators present', async () => {
       const claim = {
         ...mockClaim,
-        createdAt: new Date('2026-04-27T03:00:00Z'), // 3 AM = unusual timing
+        createdAt: new Date('2026-04-27T03:00:00Z'),
       };
       const approvedClaim = {
         ...claim,
@@ -206,11 +268,9 @@ describe('ClaimService', () => {
         payoutAmount: new Prisma.Decimal(50000),
       };
 
-      claimRepository.findByIdWithPolicy
-        .mockResolvedValueOnce(claim)
-        .mockResolvedValueOnce(claim);
-      claimRepository.countDuplicates.mockResolvedValue(1); // duplicate
-      claimRepository.countRecent.mockResolvedValue(4);     // high frequency
+      claimRepository.findByIdWithPolicy.mockResolvedValue(claim);
+      claimRepository.countDuplicates.mockResolvedValue(1);
+      claimRepository.countRecent.mockResolvedValue(4);
       claimRepository.updateStatusWithPolicy.mockResolvedValue(approvedClaim);
       prisma.$transaction.mockImplementation(async (fn: any) => fn());
 
@@ -224,6 +284,13 @@ describe('ClaimService', () => {
         expect.any(Object),
         undefined,
         'High fraud risk score detected',
+        expect.any(Object),
+      );
+      expect(reputationService.adjustReputation).toHaveBeenCalledWith(
+        'user-1',
+        REPUTATION_DELTAS.FRAUD_DETECTED,
+        'Fraud detected on claim claim-1',
+        expect.any(Object),
       );
     });
   });
@@ -250,7 +317,7 @@ describe('ClaimService', () => {
       expect(pools.unlockCapital).toHaveBeenCalledWith(
         'pool-1',
         new Prisma.Decimal(50000),
-        undefined,
+        expect.any(Object),
       );
     });
 
@@ -271,7 +338,7 @@ describe('ClaimService', () => {
         expect.any(Object),
         undefined,
         undefined,
-        undefined,
+        expect.any(Object),
       );
     });
   });
