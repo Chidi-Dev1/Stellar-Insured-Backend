@@ -38,11 +38,9 @@ export class InsuranceService {
       throw new BadRequestException('Coverage amount must be positive');
     }
 
-    // The idempotency key store is deliberately NOT touched here: the
-    // interceptor owns the PENDING -> COMPLETED/FAILED transitions, each as
-    // its own atomic write, so a domain failure never leaves a half-written
-    // key and a key is never flipped to FAILED for an operation that already
-    // committed.
+    // The idempotency key store is owned by the interceptor (each state
+    // transition is its own atomic write), so the domain transaction below
+    // never touches it.
     let purchaseNotification: PreparedNotification | null = null;
 
     const created = await this.prisma.$transaction(async tx => {

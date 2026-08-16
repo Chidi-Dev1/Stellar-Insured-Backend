@@ -279,7 +279,7 @@ describe('ClaimService', () => {
         expect.any(Object),
         expect.any(Object),
       );
-      expect(notifications.dispatchPrepared).toHaveBeenCalledWith(expect.arrayContaining([]));
+      expect(notifications.dispatchPrepared).toHaveBeenCalledWith([]);
     });
 
     it('should reject claim if claim amount exceeds coverage', async () => {
@@ -350,7 +350,7 @@ describe('ClaimService', () => {
         expect.any(Object),
         expect.any(Object),
       );
-      expect(notifications.dispatchPrepared).toHaveBeenCalledWith(expect.arrayContaining([]));
+      expect(notifications.dispatchPrepared).toHaveBeenCalledWith([]);
     });
 
     it('should detect fraud and log when >= 2 indicators present', async () => {

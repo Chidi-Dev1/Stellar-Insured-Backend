@@ -9,9 +9,7 @@ import {
 } from '@nestjs/common';
 import { Observable, of } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma.service';
-import { idempotencyCircuitBreaker } from './utils/circuit-breaker';
+import { IdempotencyService } from './idempotency.service';
 
 interface StoredResponse {
   data: any;
@@ -21,8 +19,8 @@ interface StoredResponse {
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
   private readonly logger = new Logger(IdempotencyInterceptor.name);
-  
-  constructor(private readonly prisma: PrismaService) {}
+
+  constructor(private readonly idempotencyService: IdempotencyService) {}
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
     const request = context.switchToHttp().getRequest();
@@ -43,9 +41,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
-      const existingKey = await this.prisma.idempotencyKey.findUnique({
-        where: { key: idempotencyKey },
-      });
+      const existingKey = await this.idempotencyService.findExisting(idempotencyKey);
 
       if (existingKey) {
         const isExpired = new Date() > existingKey.expiresAt;
@@ -53,7 +49,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
         if (!isExpired) {
           const currentRequestBody = JSON.stringify(requestBody);
           const storedRequestBody = JSON.stringify(existingKey.requestBody || {});
-          
+
           if (currentRequestBody !== storedRequestBody) {
             this.logger.warn(`Idempotency key ${idempotencyKey} reused with different request body`);
             throw new HttpException(
@@ -78,32 +74,52 @@ export class IdempotencyInterceptor implements NestInterceptor {
               HttpStatus.CONFLICT,
             );
           }
+
+          // FAILED (non-expired) keys fall through: re-arm and allow a retry.
         }
 
-        await this.prisma.idempotencyKey.update({
-          where: { key: idempotencyKey },
-          data: {
-            method,
-            endpoint,
-            requestBody: request.body || {},
-            response: Prisma.DbNull,
-            status: 'PENDING',
-            expiresAt,
-            deletedAt: null,
-          },
+        await this.idempotencyService.resetToPending(idempotencyKey, {
+          method,
+          endpoint,
+          requestBody,
+          expiresAt,
         });
       } else {
-        this.logger.debug(`Created new idempotency key ${idempotencyKey} for ${method} ${endpoint}`);
-        await this.prisma.idempotencyKey.create({
-          data: {
-            key: idempotencyKey,
-            method,
-            endpoint,
-            requestBody,
-            status: 'PENDING',
-            expiresAt,
-          },
+        const claimed = await this.idempotencyService.claim({
+          key: idempotencyKey,
+          method,
+          endpoint,
+          requestBody,
+          expiresAt,
         });
+
+        if (claimed === 'conflict') {
+          // A concurrent request inserted the key between our read and write.
+          // If it has already finished, replay its cached response instead of
+          // failing the retry.
+          const winner = await this.idempotencyService.findExisting(idempotencyKey);
+          if (
+            winner &&
+            winner.status === 'COMPLETED' &&
+            winner.response &&
+            new Date() <= winner.expiresAt
+          ) {
+            const storedResponse = winner.response as unknown as StoredResponse;
+            this.logger.log(`Replaying cached response for idempotency key ${idempotencyKey}`);
+            response.status(storedResponse.statusCode);
+            response.set('X-Idempotency-Key', idempotencyKey);
+            response.set('X-Idempotency-Replayed', 'true');
+            return of(storedResponse.data);
+          }
+
+          this.logger.debug(`Concurrent create for idempotency key ${idempotencyKey}`);
+          throw new HttpException(
+            'Request is still being processed. Please wait and retry.',
+            HttpStatus.CONFLICT,
+          );
+        }
+
+        this.logger.debug(`Created new idempotency key ${idempotencyKey} for ${method} ${endpoint}`);
       }
 
       const originalStatusCode = response.statusCode;
@@ -111,17 +127,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
       return next.handle().pipe(
         tap(async (result) => {
           try {
-            await idempotencyCircuitBreaker.execute(() => 
-              this.prisma.idempotencyKey.update({
-                where: { key: idempotencyKey },
-                data: {
-                  status: 'COMPLETED',
-                  response: {
-                    data: result,
-                    statusCode: response.statusCode || originalStatusCode,
-                  } as unknown as Prisma.InputJsonValue,
-                },
-              })
+            await this.idempotencyService.markCompleted(
+              idempotencyKey,
+              result,
+              response.statusCode || originalStatusCode,
             );
           } catch (cbError) {
             const errorMessage = cbError instanceof Error ? cbError.message : 'Unknown error';
@@ -130,24 +139,12 @@ export class IdempotencyInterceptor implements NestInterceptor {
           response.set('X-Idempotency-Key', idempotencyKey);
         }),
         catchError(async (error: unknown) => {
-          if (idempotencyKey) {
-            try {
-              const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-              const statusCode = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-              
-              await this.prisma.idempotencyKey.update({
-                where: { key: idempotencyKey },
-                data: {
-                  status: 'FAILED',
-                  response: { 
-                    error: errorMessage,
-                    statusCode: statusCode
-                  } as unknown as Prisma.InputJsonValue,
-                  },
-              });
-            } catch (dbError) {
-              // Ignore database errors during error handling
-            }
+          try {
+            const statusCode =
+              error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+            await this.idempotencyService.markFailed(idempotencyKey, error, statusCode);
+          } catch (dbError) {
+            // Ignore database errors during error handling
           }
           throw error;
         }),
@@ -158,7 +155,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
       }
 
       if (idempotencyKey) {
-        await this.updateFailedStatus(idempotencyKey, error, HttpStatus.INTERNAL_SERVER_ERROR);
+        try {
+          await this.idempotencyService.markFailed(
+            idempotencyKey,
+            error,
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        } catch (dbError) {
+          this.logger.warn(`Failed to update failed idempotency status for ${idempotencyKey}`, dbError);
+        }
       }
       throw error;
     }
@@ -170,23 +175,5 @@ export class IdempotencyInterceptor implements NestInterceptor {
     }
     const normalized = value.trim();
     return normalized.length > 0 ? normalized : undefined;
-  }
-
-  private async updateFailedStatus(key: string, error: unknown, statusCode: number): Promise<void> {
-    try {
-      const errorMessage = error instanceof Error ? error.message : 'Internal server error';
-      await this.prisma.idempotencyKey.update({
-        where: { key },
-        data: {
-          status: 'FAILED',
-          response: {
-            error: errorMessage,
-            statusCode,
-          } as unknown as Prisma.InputJsonValue,
-        },
-      });
-    } catch (dbError) {
-      this.logger.warn(`Failed to update failed idempotency status for ${key}`, dbError);
-    }
   }
 }
