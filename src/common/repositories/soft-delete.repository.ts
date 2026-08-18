@@ -1,5 +1,8 @@
 import { PrismaService } from '../../prisma.service';
-import { ISoftDeleteRepository, TransactionClient } from './repository.interface';
+import {
+  ISoftDeleteRepository,
+  TransactionClient,
+} from './repository.interface';
 import { BaseRepository } from './base.repository';
 
 /**
@@ -54,7 +57,10 @@ export abstract class SoftDeleteRepository<T, ID = string>
   /**
    * Soft-delete multiple records matching a where clause in one statement.
    */
-  async softDeleteMany(where: Record<string, unknown>, tx?: TransactionClient): Promise<number> {
+  async softDeleteMany(
+    where: Record<string, unknown>,
+    tx?: TransactionClient,
+  ): Promise<number> {
     const result = await this.delegate(tx).updateMany({
       where,
       data: { deletedAt: new Date() },

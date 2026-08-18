@@ -20,15 +20,26 @@ export class UserRepository extends SoftDeleteRepository<User> {
     super(prisma, 'user');
   }
 
-  async findByIdActive(id: string, tx?: TransactionClient): Promise<User | null> {
+  async findByIdActive(
+    id: string,
+    tx?: TransactionClient,
+  ): Promise<User | null> {
     return this.delegate(tx).findFirst({ where: { id, deletedAt: null } });
   }
 
-  async findByWallet(walletAddress: string, tx?: TransactionClient): Promise<User | null> {
-    return this.delegate(tx).findFirst({ where: { walletAddress, deletedAt: null } });
+  async findByWallet(
+    walletAddress: string,
+    tx?: TransactionClient,
+  ): Promise<User | null> {
+    return this.delegate(tx).findFirst({
+      where: { walletAddress, deletedAt: null },
+    });
   }
 
-  async findByWalletUnique(walletAddress: string, tx?: TransactionClient): Promise<User | null> {
+  async findByWalletUnique(
+    walletAddress: string,
+    tx?: TransactionClient,
+  ): Promise<User | null> {
     return this.delegate(tx).findUnique({ where: { walletAddress } });
   }
 
@@ -98,10 +109,22 @@ export class UserRepository extends SoftDeleteRepository<User> {
     const client: any = tx ?? this.prisma;
     const [user] = await this.prisma.$transaction([
       client.user.update({ where: { id }, data: { deletedAt } }),
-      client.notification.updateMany({ where: { userId: id }, data: { deletedAt } }),
-      client.notificationSetting.updateMany({ where: { userId: id }, data: { deletedAt } }),
-      client.insurancePolicy.updateMany({ where: { userId: id }, data: { deletedAt } }),
-      client.claim.updateMany({ where: { policy: { userId: id } }, data: { deletedAt } }),
+      client.notification.updateMany({
+        where: { userId: id },
+        data: { deletedAt },
+      }),
+      client.notificationSetting.updateMany({
+        where: { userId: id },
+        data: { deletedAt },
+      }),
+      client.insurancePolicy.updateMany({
+        where: { userId: id },
+        data: { deletedAt },
+      }),
+      client.claim.updateMany({
+        where: { policy: { userId: id } },
+        data: { deletedAt },
+      }),
     ]);
     return user as User;
   }

@@ -10,7 +10,10 @@ import {
   DividendClaimedEvent,
   FundsReleasedEvent,
 } from '../types/event-types';
-import { IEventHandler, IEventHandlerRegistry } from '../interfaces/event-handler.interface';
+import {
+  IEventHandler,
+  IEventHandlerRegistry,
+} from '../interfaces/event-handler.interface';
 import { NotificationService } from '../../notification/services/notification.service';
 import { ReputationService } from '../../reputation/reputation.service';
 import { REPUTATION_DELTAS } from '../../reputation/reputation.constants';
@@ -47,7 +50,9 @@ class ProjectCreatedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectCreatedEvent;
-    this.logger.log(`Processing PROJECT_CREATED: Project ${data.projectId} by ${data.creator}`);
+    this.logger.log(
+      `Processing PROJECT_CREATED: Project ${data.projectId} by ${data.creator}`,
+    );
 
     const user = await this.userRepository.upsertByWallet(
       data.creator,
@@ -111,7 +116,9 @@ class ContributionMadeHandler implements IEventHandler {
       {},
     );
 
-    const project = await this.projectRepository.findByContractId(data.projectId.toString());
+    const project = await this.projectRepository.findByContractId(
+      data.projectId.toString(),
+    );
     if (!project) {
       this.logger.warn(`Project ${data.projectId} not found for contribution`);
       return;
@@ -156,7 +163,9 @@ class ContributionMadeHandler implements IEventHandler {
       );
     }
 
-    this.logger.log(`Recorded contribution of ${data.amount} for project ${data.projectId}`);
+    this.logger.log(
+      `Recorded contribution of ${data.amount} for project ${data.projectId}`,
+    );
   }
 }
 
@@ -185,16 +194,23 @@ class MilestoneApprovedHandler implements IEventHandler {
       `Processing MILESTONE_APPROVED: Milestone ${data.milestoneId} for project ${data.projectId}`,
     );
 
-    const project = await this.projectRepository.findByContractId(data.projectId.toString());
+    const project = await this.projectRepository.findByContractId(
+      data.projectId.toString(),
+    );
     if (!project) {
-      this.logger.warn(`Project ${data.projectId} not found for milestone approval`);
+      this.logger.warn(
+        `Project ${data.projectId} not found for milestone approval`,
+      );
       return;
     }
     updateTracingContext({ entityId: project.id });
 
-    await this.milestoneRepository.updateManyByProject(project.id, { status: 'APPROVED' });
+    await this.milestoneRepository.updateManyByProject(project.id, {
+      status: 'APPROVED',
+    });
 
-    const contributors = await this.contributionRepository.findDistinctInvestors(project.id);
+    const contributors =
+      await this.contributionRepository.findDistinctInvestors(project.id);
 
     for (const { investorId } of contributors) {
       try {
@@ -254,16 +270,23 @@ class MilestoneRejectedHandler implements IEventHandler {
       `Processing MILESTONE_REJECTED: Milestone ${data.milestoneId} for project ${data.projectId}`,
     );
 
-    const project = await this.projectRepository.findByContractId(data.projectId.toString());
+    const project = await this.projectRepository.findByContractId(
+      data.projectId.toString(),
+    );
     if (!project) {
-      this.logger.warn(`Project ${data.projectId} not found for milestone rejection`);
+      this.logger.warn(
+        `Project ${data.projectId} not found for milestone rejection`,
+      );
       return;
     }
     updateTracingContext({ entityId: project.id });
 
-    await this.milestoneRepository.updateManyByProject(project.id, { status: 'REJECTED' });
+    await this.milestoneRepository.updateManyByProject(project.id, {
+      status: 'REJECTED',
+    });
 
-    const contributors = await this.contributionRepository.findDistinctInvestors(project.id);
+    const contributors =
+      await this.contributionRepository.findDistinctInvestors(project.id);
 
     for (const { investorId } of contributors) {
       try {
@@ -320,7 +343,9 @@ class FundsReleasedHandler implements IEventHandler {
       `Processing FUNDS_RELEASED: ${data.amount} for project ${data.projectId}, milestone ${data.milestoneId}`,
     );
 
-    const project = await this.projectRepository.findByContractId(data.projectId.toString());
+    const project = await this.projectRepository.findByContractId(
+      data.projectId.toString(),
+    );
     if (!project) {
       this.logger.warn(`Project ${data.projectId} not found for funds release`);
       return;
@@ -352,9 +377,12 @@ class ProjectCompletedHandler implements IEventHandler {
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
     this.logger.log(`Processing PROJECT_COMPLETED: Project ${data.projectId}`);
-    await this.projectRepository.updateManyByContractId(data.projectId.toString(), {
-      status: 'COMPLETED',
-    });
+    await this.projectRepository.updateManyByContractId(
+      data.projectId.toString(),
+      {
+        status: 'COMPLETED',
+      },
+    );
     updateTracingContext({ entityId: data.projectId.toString() });
     this.logger.log(`Marked project ${data.projectId} as completed`);
   }
@@ -376,9 +404,12 @@ class ProjectFailedHandler implements IEventHandler {
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
     this.logger.log(`Processing PROJECT_FAILED: Project ${data.projectId}`);
-    await this.projectRepository.updateManyByContractId(data.projectId.toString(), {
-      status: 'CANCELLED',
-    });
+    await this.projectRepository.updateManyByContractId(
+      data.projectId.toString(),
+      {
+        status: 'CANCELLED',
+      },
+    );
     updateTracingContext({ entityId: data.projectId.toString() });
     this.logger.log(`Marked project ${data.projectId} as failed/cancelled`);
   }
@@ -467,10 +498,17 @@ export class EventHandlerService implements IEventHandlerRegistry {
         this.reputationService,
       ),
     );
-    this.register(new FundsReleasedHandler(this.projectRepository, this.milestoneRepository));
+    this.register(
+      new FundsReleasedHandler(
+        this.projectRepository,
+        this.milestoneRepository,
+      ),
+    );
     this.register(new ProjectCompletedHandler(this.projectRepository));
     this.register(new ProjectFailedHandler(this.projectRepository));
-    this.register(new DividendClaimedHandler(this.userRepository, this.reputationService));
+    this.register(
+      new DividendClaimedHandler(this.userRepository, this.reputationService),
+    );
 
     this.logger.log(`Registered ${this.handlers.size} event handlers`);
   }
@@ -491,7 +529,9 @@ export class EventHandlerService implements IEventHandlerRegistry {
   async processEvent(event: ParsedContractEvent): Promise<boolean> {
     const handler = this.getHandler(event.eventType);
     if (!handler) {
-      this.logger.debug(`No handler registered for event type: ${event.eventType}`);
+      this.logger.debug(
+        `No handler registered for event type: ${event.eventType}`,
+      );
       return false;
     }
 
@@ -503,7 +543,10 @@ export class EventHandlerService implements IEventHandlerRegistry {
       await handler.handle(event);
       return true;
     } catch (error) {
-      this.logger.error(`Error processing event ${event.eventType}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error processing event ${event.eventType}: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }

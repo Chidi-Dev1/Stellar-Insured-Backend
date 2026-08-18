@@ -35,7 +35,10 @@ export class ClaimRepository extends SoftDeleteRepository<Claim> {
     extra: Record<string, unknown> = {},
     tx?: TransactionClient,
   ): Promise<Claim> {
-    return this.delegate(tx).update({ where: { id }, data: { status, ...extra } });
+    return this.delegate(tx).update({
+      where: { id },
+      data: { status, ...extra },
+    });
   }
 
   async updateStatusWithPolicy(

@@ -10,7 +10,10 @@ export class InsurancePoolRepository extends SoftDeleteRepository<InsurancePool>
     super(prisma, 'insurancePool');
   }
 
-  async findByIdRequired(id: string, tx?: TransactionClient): Promise<InsurancePool | null> {
+  async findByIdRequired(
+    id: string,
+    tx?: TransactionClient,
+  ): Promise<InsurancePool | null> {
     return this.delegate(tx).findUnique({ where: { id } });
   }
 

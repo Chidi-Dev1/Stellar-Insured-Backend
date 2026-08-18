@@ -22,7 +22,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
   constructor(private readonly idempotencyService: IdempotencyService) {}
 
-  async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
+  async intercept(
+    context: ExecutionContext,
+    next: CallHandler,
+  ): Promise<Observable<any>> {
     const request = context.switchToHttp().getRequest();
     const response = context.switchToHttp().getResponse();
     const idempotencyKey = this.normalizeIdempotencyKey(
@@ -41,17 +44,22 @@ export class IdempotencyInterceptor implements NestInterceptor {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
-      const existingKey = await this.idempotencyService.findExisting(idempotencyKey);
+      const existingKey =
+        await this.idempotencyService.findExisting(idempotencyKey);
 
       if (existingKey) {
         const isExpired = new Date() > existingKey.expiresAt;
 
         if (!isExpired) {
           const currentRequestBody = JSON.stringify(requestBody);
-          const storedRequestBody = JSON.stringify(existingKey.requestBody || {});
+          const storedRequestBody = JSON.stringify(
+            existingKey.requestBody || {},
+          );
 
           if (currentRequestBody !== storedRequestBody) {
-            this.logger.warn(`Idempotency key ${idempotencyKey} reused with different request body`);
+            this.logger.warn(
+              `Idempotency key ${idempotencyKey} reused with different request body`,
+            );
             throw new HttpException(
               'Idempotency key already used with a different request body',
               HttpStatus.BAD_REQUEST,
@@ -59,8 +67,11 @@ export class IdempotencyInterceptor implements NestInterceptor {
           }
 
           if (existingKey.status === 'COMPLETED' && existingKey.response) {
-            this.logger.log(`Replaying cached response for idempotency key ${idempotencyKey}`);
-            const storedResponse = existingKey.response as unknown as StoredResponse;
+            this.logger.log(
+              `Replaying cached response for idempotency key ${idempotencyKey}`,
+            );
+            const storedResponse =
+              existingKey.response as unknown as StoredResponse;
             response.status(storedResponse.statusCode);
             response.set('X-Idempotency-Key', idempotencyKey);
             response.set('X-Idempotency-Replayed', 'true');
@@ -68,7 +79,9 @@ export class IdempotencyInterceptor implements NestInterceptor {
           }
 
           if (existingKey.status === 'PENDING') {
-            this.logger.debug(`Concurrent request for pending idempotency key ${idempotencyKey}`);
+            this.logger.debug(
+              `Concurrent request for pending idempotency key ${idempotencyKey}`,
+            );
             throw new HttpException(
               'Request is still being processed. Please wait and retry.',
               HttpStatus.CONFLICT,
@@ -97,7 +110,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
           // A concurrent request inserted the key between our read and write.
           // If it has already finished, replay its cached response instead of
           // failing the retry.
-          const winner = await this.idempotencyService.findExisting(idempotencyKey);
+          const winner =
+            await this.idempotencyService.findExisting(idempotencyKey);
           if (
             winner &&
             winner.status === 'COMPLETED' &&
@@ -105,27 +119,33 @@ export class IdempotencyInterceptor implements NestInterceptor {
             new Date() <= winner.expiresAt
           ) {
             const storedResponse = winner.response as unknown as StoredResponse;
-            this.logger.log(`Replaying cached response for idempotency key ${idempotencyKey}`);
+            this.logger.log(
+              `Replaying cached response for idempotency key ${idempotencyKey}`,
+            );
             response.status(storedResponse.statusCode);
             response.set('X-Idempotency-Key', idempotencyKey);
             response.set('X-Idempotency-Replayed', 'true');
             return of(storedResponse.data);
           }
 
-          this.logger.debug(`Concurrent create for idempotency key ${idempotencyKey}`);
+          this.logger.debug(
+            `Concurrent create for idempotency key ${idempotencyKey}`,
+          );
           throw new HttpException(
             'Request is still being processed. Please wait and retry.',
             HttpStatus.CONFLICT,
           );
         }
 
-        this.logger.debug(`Created new idempotency key ${idempotencyKey} for ${method} ${endpoint}`);
+        this.logger.debug(
+          `Created new idempotency key ${idempotencyKey} for ${method} ${endpoint}`,
+        );
       }
 
       const originalStatusCode = response.statusCode;
 
       return next.handle().pipe(
-        tap(async (result) => {
+        tap(async result => {
           try {
             await this.idempotencyService.markCompleted(
               idempotencyKey,
@@ -133,16 +153,25 @@ export class IdempotencyInterceptor implements NestInterceptor {
               response.statusCode || originalStatusCode,
             );
           } catch (cbError) {
-            const errorMessage = cbError instanceof Error ? cbError.message : 'Unknown error';
-            this.logger.error(`Failed to store idempotency key ${idempotencyKey}: ${errorMessage}`);
+            const errorMessage =
+              cbError instanceof Error ? cbError.message : 'Unknown error';
+            this.logger.error(
+              `Failed to store idempotency key ${idempotencyKey}: ${errorMessage}`,
+            );
           }
           response.set('X-Idempotency-Key', idempotencyKey);
         }),
         catchError(async (error: unknown) => {
           try {
             const statusCode =
-              error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-            await this.idempotencyService.markFailed(idempotencyKey, error, statusCode);
+              error instanceof HttpException
+                ? error.getStatus()
+                : HttpStatus.INTERNAL_SERVER_ERROR;
+            await this.idempotencyService.markFailed(
+              idempotencyKey,
+              error,
+              statusCode,
+            );
           } catch (dbError) {
             // Ignore database errors during error handling
           }
@@ -162,7 +191,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
             HttpStatus.INTERNAL_SERVER_ERROR,
           );
         } catch (dbError) {
-          this.logger.warn(`Failed to update failed idempotency status for ${idempotencyKey}`, dbError);
+          this.logger.warn(
+            `Failed to update failed idempotency status for ${idempotencyKey}`,
+            dbError,
+          );
         }
       }
       throw error;

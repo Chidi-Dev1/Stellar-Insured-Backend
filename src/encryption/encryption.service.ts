@@ -26,7 +26,9 @@ export class EncryptionService {
       }
       const keyBuffer = Buffer.from(base64Key, 'base64');
       if (keyBuffer.length !== 32) {
-        throw new Error(`Encryption key for ${version} must be 32 bytes (256 bits)`);
+        throw new Error(
+          `Encryption key for ${version} must be 32 bytes (256 bits)`,
+        );
       }
       this.keys.set(version, keyBuffer);
       if (!firstVersion) {
@@ -35,7 +37,9 @@ export class EncryptionService {
     }
 
     this.activeKeyVersion = firstVersion;
-    this.logger.log(`Encryption service initialized with key version: ${this.activeKeyVersion}`);
+    this.logger.log(
+      `Encryption service initialized with key version: ${this.activeKeyVersion}`,
+    );
   }
 
   /**
@@ -47,7 +51,9 @@ export class EncryptionService {
     const key = this.keys.get(this.activeKeyVersion);
 
     if (!key) {
-      throw new Error(`Active encryption key version ${this.activeKeyVersion} not found`);
+      throw new Error(
+        `Active encryption key version ${this.activeKeyVersion} not found`,
+      );
     }
 
     const cipher = createCipheriv('aes-256-gcm', key, iv);
@@ -66,7 +72,9 @@ export class EncryptionService {
   decrypt(encryptedText: string): string {
     const parts = encryptedText.split(':');
     if (parts.length !== 4) {
-      throw new Error(`Invalid encrypted text format: expected version:iv:authTag:ciphertext`);
+      throw new Error(
+        `Invalid encrypted text format: expected version:iv:authTag:ciphertext`,
+      );
     }
 
     const [version, ivHex, authTagHex, encrypted] = parts;

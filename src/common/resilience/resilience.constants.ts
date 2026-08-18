@@ -11,7 +11,9 @@ import { RetryOptions } from './retry';
  * breaker trips and callers fail fast (or use their fallback).
  */
 export interface ResiliencePolicy {
-  circuitBreaker: Partial<Omit<CircuitBreakerOptions, 'name'>> & { name: string };
+  circuitBreaker: Partial<Omit<CircuitBreakerOptions, 'name'>> & {
+    name: string;
+  };
   retry?: RetryOptions;
 }
 

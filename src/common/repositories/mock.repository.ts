@@ -1,5 +1,8 @@
 import { NotFoundException } from '@nestjs/common';
-import { ISoftDeleteRepository, TransactionClient } from './repository.interface';
+import {
+  ISoftDeleteRepository,
+  TransactionClient,
+} from './repository.interface';
 
 /**
  * In-memory mock repository for unit tests.
@@ -13,9 +16,10 @@ import { ISoftDeleteRepository, TransactionClient } from './repository.interface
  * exercise the repository interface without any Prisma dependency.
  * Individual methods can also be replaced with jest.fn() for spy assertions.
  */
-export class MockRepository<T extends { id: string }, ID = string>
-  implements ISoftDeleteRepository<T, ID>
-{
+export class MockRepository<
+  T extends { id: string },
+  ID = string,
+> implements ISoftDeleteRepository<T, ID> {
   protected store = new Map<string, T>();
 
   /** Pre-populate the store with seed records. */
@@ -46,7 +50,10 @@ export class MockRepository<T extends { id: string }, ID = string>
     return record;
   }
 
-  async findMany(args: Record<string, unknown> = {}, _tx?: TransactionClient): Promise<T[]> {
+  async findMany(
+    args: Record<string, unknown> = {},
+    _tx?: TransactionClient,
+  ): Promise<T[]> {
     let records = Array.from(this.store.values());
 
     // Very basic where support for unit-test scenarios
@@ -65,16 +72,24 @@ export class MockRepository<T extends { id: string }, ID = string>
     return records;
   }
 
-  async create(data: Record<string, unknown>, _tx?: TransactionClient): Promise<T> {
+  async create(
+    data: Record<string, unknown>,
+    _tx?: TransactionClient,
+  ): Promise<T> {
     const record = { ...data } as unknown as T;
     this.store.set((record as any).id, record);
     return record;
   }
 
-  async update(id: ID, data: Record<string, unknown>, _tx?: TransactionClient): Promise<T> {
+  async update(
+    id: ID,
+    data: Record<string, unknown>,
+    _tx?: TransactionClient,
+  ): Promise<T> {
     const key = id as unknown as string;
     const existing = this.store.get(key);
-    if (!existing) throw new NotFoundException(`Record with id ${key} not found`);
+    if (!existing)
+      throw new NotFoundException(`Record with id ${key} not found`);
     const updated = { ...existing, ...data } as T;
     this.store.set(key, updated);
     return updated;
@@ -83,7 +98,8 @@ export class MockRepository<T extends { id: string }, ID = string>
   async delete(id: ID, _tx?: TransactionClient): Promise<T> {
     const key = id as unknown as string;
     const existing = this.store.get(key);
-    if (!existing) throw new NotFoundException(`Record with id ${key} not found`);
+    if (!existing)
+      throw new NotFoundException(`Record with id ${key} not found`);
     this.store.delete(key);
     return existing;
   }
@@ -96,7 +112,10 @@ export class MockRepository<T extends { id: string }, ID = string>
     return this.update(id, { deletedAt: null }, tx);
   }
 
-  async softDeleteMany(where: Record<string, unknown>, _tx?: TransactionClient): Promise<number> {
+  async softDeleteMany(
+    where: Record<string, unknown>,
+    _tx?: TransactionClient,
+  ): Promise<number> {
     let count = 0;
     for (const [key, record] of this.store.entries()) {
       if (Object.entries(where).every(([k, v]) => (record as any)[k] === v)) {
@@ -107,7 +126,10 @@ export class MockRepository<T extends { id: string }, ID = string>
     return count;
   }
 
-  async count(where: Record<string, unknown> = {}, _tx?: TransactionClient): Promise<number> {
+  async count(
+    where: Record<string, unknown> = {},
+    _tx?: TransactionClient,
+  ): Promise<number> {
     if (Object.keys(where).length === 0) return this.store.size;
     return Array.from(this.store.values()).filter(r =>
       Object.entries(where).every(([k, v]) => (r as any)[k] === v),

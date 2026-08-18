@@ -42,18 +42,16 @@ export function createCircuitBreaker(
   name: string,
   options: Partial<Omit<CircuitBreakerOptions, 'name'>> = {},
 ): CircuitBreaker {
-  return new OpossumCircuitBreaker(
-    (task: () => Promise<unknown>) => task(),
-    {
-      name,
-      errorThresholdPercentage:
-        options.errorThresholdPercentage ?? DEFAULTS.errorThresholdPercentage,
-      resetTimeout: options.resetTimeout ?? DEFAULTS.resetTimeout,
-      volumeThreshold: options.volumeThreshold ?? DEFAULTS.volumeThreshold,
-      rollingCountTimeout: options.rollingCountTimeout ?? DEFAULTS.rollingCountTimeout,
-      timeout: options.timeout ?? DEFAULTS.timeout,
-    },
-  );
+  return new OpossumCircuitBreaker((task: () => Promise<unknown>) => task(), {
+    name,
+    errorThresholdPercentage:
+      options.errorThresholdPercentage ?? DEFAULTS.errorThresholdPercentage,
+    resetTimeout: options.resetTimeout ?? DEFAULTS.resetTimeout,
+    volumeThreshold: options.volumeThreshold ?? DEFAULTS.volumeThreshold,
+    rollingCountTimeout:
+      options.rollingCountTimeout ?? DEFAULTS.rollingCountTimeout,
+    timeout: options.timeout ?? DEFAULTS.timeout,
+  });
 }
 
 /**
@@ -63,5 +61,8 @@ export function createCircuitBreaker(
 export function isCircuitOpenError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const candidate = error as { name?: string; code?: string };
-  return candidate.name === 'CircuitBreakerOpenError' || candidate.code === 'EOPENBREAKER';
+  return (
+    candidate.name === 'CircuitBreakerOpenError' ||
+    candidate.code === 'EOPENBREAKER'
+  );
 }

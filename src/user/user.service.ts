@@ -54,7 +54,9 @@ export class UserService {
     const sanitizedAddress = sanitizeString(walletAddress);
     const user = await this.userRepository.findByWallet(sanitizedAddress);
     if (!user) {
-      throw new NotFoundException(`User with wallet address ${sanitizedAddress} not found`);
+      throw new NotFoundException(
+        `User with wallet address ${sanitizedAddress} not found`,
+      );
     }
     return this.decryptUser(user);
   }
@@ -84,13 +86,18 @@ export class UserService {
       throw new BadRequestException('Invalid wallet address format');
     }
     const sanitizedAddress = sanitizeString(walletAddress);
-    const existingUser = await this.userRepository.findByWalletUnique(sanitizedAddress);
+    const existingUser =
+      await this.userRepository.findByWalletUnique(sanitizedAddress);
     if (existingUser) {
-      throw new ConflictException('User with this wallet address already exists');
+      throw new ConflictException(
+        'User with this wallet address already exists',
+      );
     }
 
     const sanitizedEmail = email ? sanitizeString(email) : null;
-    const encryptedEmail = sanitizedEmail ? this.encryption.encrypt(sanitizedEmail) : null;
+    const encryptedEmail = sanitizedEmail
+      ? this.encryption.encrypt(sanitizedEmail)
+      : null;
 
     return this.userRepository.transaction(async tx => {
       return this.userRepository.createWithSettings(
@@ -117,10 +124,14 @@ export class UserService {
       data.email = this.encryption.encrypt(sanitizeString(updateData.email));
     }
     if (updateData.profileData !== undefined) {
-      data.profileData = this.toJsonInput(sanitizeObject(updateData.profileData));
+      data.profileData = this.toJsonInput(
+        sanitizeObject(updateData.profileData),
+      );
     }
     if (updateData.pushSubscription !== undefined) {
-      data.pushSubscription = this.encryption.encrypt(sanitizeString(updateData.pushSubscription));
+      data.pushSubscription = this.encryption.encrypt(
+        sanitizeString(updateData.pushSubscription),
+      );
     }
 
     const beforeUser = await this.findById(id);
@@ -135,13 +146,24 @@ export class UserService {
       return this.userRepository.updateUser(id, data, tx);
     });
 
-    const { beforeState, afterState } = this.auditService.snapshotDiff(beforeSnapshot, {
-      id: updatedUser.id,
-      email: updatedUser.email,
-      profileData: updatedUser.profileData,
-      pushSubscription: updatedUser.pushSubscription,
-    });
-    await this.auditService.log(AuditAction.UPDATE, 'User', id, beforeState, afterState, undefined, 'Profile updated');
+    const { beforeState, afterState } = this.auditService.snapshotDiff(
+      beforeSnapshot,
+      {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        profileData: updatedUser.profileData,
+        pushSubscription: updatedUser.pushSubscription,
+      },
+    );
+    await this.auditService.log(
+      AuditAction.UPDATE,
+      'User',
+      id,
+      beforeState,
+      afterState,
+      undefined,
+      'Profile updated',
+    );
 
     return updatedUser;
   }
@@ -149,7 +171,10 @@ export class UserService {
   async delete(id: string): Promise<{ id: string; deletedAt: Date | null }> {
     await this.findById(id);
     const deletedAt = new Date();
-    const deletedUser = await this.userRepository.cascadeSoftDelete(id, deletedAt);
+    const deletedUser = await this.userRepository.cascadeSoftDelete(
+      id,
+      deletedAt,
+    );
     await this.auditService.log(
       AuditAction.DELETE,
       'User',
@@ -191,13 +216,23 @@ export class UserService {
   private decryptUser(user: User): User {
     const decrypted = { ...user };
     if (decrypted.email) {
-      try { decrypted.email = this.encryption.decrypt(decrypted.email); } catch { /* keep encrypted */ }
+      try {
+        decrypted.email = this.encryption.decrypt(decrypted.email);
+      } catch {
+        /* keep encrypted */
+      }
     }
     if (decrypted.pushSubscription) {
       try {
-        const decryptedJson = this.encryption.decrypt(decrypted.pushSubscription as string);
-        decrypted.pushSubscription = JSON.parse(decryptedJson) as Prisma.JsonValue;
-      } catch { /* keep encrypted */ }
+        const decryptedJson = this.encryption.decrypt(
+          decrypted.pushSubscription as string,
+        );
+        decrypted.pushSubscription = JSON.parse(
+          decryptedJson,
+        ) as Prisma.JsonValue;
+      } catch {
+        /* keep encrypted */
+      }
     }
     return decrypted;
   }

@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { rpc as SorobanRpc } from 'stellar-sdk';
@@ -7,11 +12,18 @@ import { PrismaService } from '../../prisma.service';
 import { LedgerTrackerService } from './ledger-tracker.service';
 import { EventHandlerService } from './event-handler.service';
 import { XdrDecoderService } from './xdr-decoder.service';
-import { SorobanEvent, ParsedContractEvent, ContractEventType } from '../types/event-types';
+import {
+  SorobanEvent,
+  ParsedContractEvent,
+  ContractEventType,
+} from '../types/event-types';
 import { LedgerInfo } from '../types/ledger.types';
 import { QuarantinedEventRepository } from '../../common/repositories/indexer.repository';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
-import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import {
+  createCircuitBreaker,
+  CircuitBreaker,
+} from '../../common/resilience/circuit-breaker';
 import { withResilience } from '../../common/resilience/resilience';
 import { RetryOptions } from '../../common/resilience/retry';
 import { STELLAR_RPC_POLICY } from '../../common/resilience/resilience.constants';
@@ -47,8 +59,14 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       'STELLAR_RPC_URL',
       'https://soroban-testnet.stellar.org',
     );
-    this.pollIntervalMs = this.configService.get<number>('INDEXER_POLL_INTERVAL_MS', 5000);
-    this.maxEventsPerFetch = this.configService.get<number>('INDEXER_MAX_EVENTS_PER_FETCH', 100);
+    this.pollIntervalMs = this.configService.get<number>(
+      'INDEXER_POLL_INTERVAL_MS',
+      5000,
+    );
+    this.maxEventsPerFetch = this.configService.get<number>(
+      'INDEXER_MAX_EVENTS_PER_FETCH',
+      100,
+    );
 
     // Initialize RPC client
     this.rpc = new SorobanRpc.Server(rpcUrl, {
@@ -67,7 +85,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`Indexer initialized for ${this.network} network`);
     this.logger.log(`RPC URL: ${rpcUrl}`);
-    this.logger.log(`Monitoring contracts: ${this.contractIds.join(', ') || 'none configured'}`);
+    this.logger.log(
+      `Monitoring contracts: ${this.contractIds.join(', ') || 'none configured'}`,
+    );
   }
 
   /**
@@ -76,16 +96,22 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
   private getContractIds(): string[] {
     const contracts: string[] = [];
 
-    const projectLaunch = this.configService.get<string>('PROJECT_LAUNCH_CONTRACT_ID');
+    const projectLaunch = this.configService.get<string>(
+      'PROJECT_LAUNCH_CONTRACT_ID',
+    );
     if (projectLaunch) contracts.push(projectLaunch);
 
     const escrow = this.configService.get<string>('ESCROW_CONTRACT_ID');
     if (escrow) contracts.push(escrow);
 
-    const profitDist = this.configService.get<string>('PROFIT_DISTRIBUTION_CONTRACT_ID');
+    const profitDist = this.configService.get<string>(
+      'PROFIT_DISTRIBUTION_CONTRACT_ID',
+    );
     if (profitDist) contracts.push(profitDist);
 
-    const subscription = this.configService.get<string>('SUBSCRIPTION_POOL_CONTRACT_ID');
+    const subscription = this.configService.get<string>(
+      'SUBSCRIPTION_POOL_CONTRACT_ID',
+    );
     if (subscription) contracts.push(subscription);
 
     const governance = this.configService.get<string>('GOVERNANCE_CONTRACT_ID');
@@ -150,10 +176,14 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
       // Register dynamic interval using config value
       const callback = () => this.scheduledPoll();
-      const interval = setInterval(callback, this.pollIntervalMs); this.schedulerRegistry.addInterval('indexer-poll', interval);
+      const interval = setInterval(callback, this.pollIntervalMs);
+      this.schedulerRegistry.addInterval('indexer-poll', interval);
       this.logger.log(`Registered poll interval: ${this.pollIntervalMs}ms`);
     } catch (error) {
-      this.logger.error(`Failed to initialize indexer: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to initialize indexer: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -171,7 +201,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
    * @param intervalMs New interval in milliseconds
    */
   updatePollInterval(intervalMs: number): void {
-    this.logger.log(`Updating poll interval from ${this.pollIntervalMs}ms to ${intervalMs}ms`);
+    this.logger.log(
+      `Updating poll interval from ${this.pollIntervalMs}ms to ${intervalMs}ms`,
+    );
 
     // Remove existing interval
     try {
@@ -182,7 +214,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
     // Register new interval
     const callback = () => this.scheduledPoll();
-    const interval = setInterval(callback, intervalMs); this.schedulerRegistry.addInterval('indexer-poll', interval);
+    const interval = setInterval(callback, intervalMs);
+    this.schedulerRegistry.addInterval('indexer-poll', interval);
 
     // Update the stored value
     this.pollIntervalMs = intervalMs;
@@ -216,11 +249,15 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
       // Check if there's anything to process
       if (startLedger > latestLedger) {
-        this.logger.debug(`No new ledgers. Current: ${startLedger - 1}, Latest: ${latestLedger}`);
+        this.logger.debug(
+          `No new ledgers. Current: ${startLedger - 1}, Latest: ${latestLedger}`,
+        );
         return;
       }
 
-      this.logger.log(`Polling events from ledger ${startLedger} to ${latestLedger}`);
+      this.logger.log(
+        `Polling events from ledger ${startLedger} to ${latestLedger}`,
+      );
 
       // Fetch events (retries + circuit breaker applied inside fetchEvents)
       const events = await this.fetchEvents(startLedger, latestLedger);
@@ -251,30 +288,46 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
           }
         } catch (error) {
           errorCount++;
-          this.logger.error(`Failed to process event ${event.id}: ${error.message}`);
+          this.logger.error(
+            `Failed to process event ${event.id}: ${error.message}`,
+          );
 
           // Continue processing other events even if one fails
           // But log the error for monitoring
-          await this.ledgerTracker.logError(`Event processing failed: ${event.id}`, {
-            eventId: event.id,
-            error: error.message,
-          });
+          await this.ledgerTracker.logError(
+            `Event processing failed: ${event.id}`,
+            {
+              eventId: event.id,
+              error: error.message,
+            },
+          );
         }
       }
 
       // Only advance cursor to the last successfully processed ledger
       // Never skip past ledgers with unprocessed/errored events
-      if (lastSuccessfulLedger > ((await this.ledgerTracker.getLastCursor())?.lastLedgerSeq ?? 0)) {
+      if (
+        lastSuccessfulLedger >
+        ((await this.ledgerTracker.getLastCursor())?.lastLedgerSeq ?? 0)
+      ) {
         await this.ledgerTracker.updateCursor(lastSuccessfulLedger);
       }
 
       // Log progress
-      await this.ledgerTracker.logProgress(lastSuccessfulLedger, latestLedger, processedCount);
+      await this.ledgerTracker.logProgress(
+        lastSuccessfulLedger,
+        latestLedger,
+        processedCount,
+      );
 
-      this.logger.log(`Processed ${processedCount}/${events.length} events (${errorCount} errors)`);
+      this.logger.log(
+        `Processed ${processedCount}/${events.length} events (${errorCount} errors)`,
+      );
     } catch (error) {
       this.logger.error(`Error in poll cycle: ${error.message}`, error.stack);
-      await this.ledgerTracker.logError('Poll cycle failed', { error: error.message });
+      await this.ledgerTracker.logError('Poll cycle failed', {
+        error: error.message,
+      });
     } finally {
       this.isRunning = false;
     }
@@ -285,7 +338,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
    * shared circuit breaker with exponential-backoff retries, so a degraded
    * RPC endpoint trips the breaker instead of wedging the poll loop.
    */
-  private async fetchEvents(startLedger: number, endLedger: number): Promise<SorobanEvent[]> {
+  private async fetchEvents(
+    startLedger: number,
+    endLedger: number,
+  ): Promise<SorobanEvent[]> {
     const events: SorobanEvent[] = [];
     let cursor: string | undefined;
 
@@ -331,7 +387,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
       // Safety check - don't fetch too many events at once
       if (events.length >= this.maxEventsPerFetch * 5) {
-        this.logger.warn(`Event fetch limit reached. Processing ${events.length} events.`);
+        this.logger.warn(
+          `Event fetch limit reached. Processing ${events.length} events.`,
+        );
         break;
       }
     } while (cursor);
@@ -444,8 +502,10 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
         rawXdr,
         reason,
       })
-      .catch((err) => {
-        this.logger.error(`Failed to quarantine event ${event.id}: ${err.message}`);
+      .catch(err => {
+        this.logger.error(
+          `Failed to quarantine event ${event.id}: ${err.message}`,
+        );
       });
   }
 
@@ -471,7 +531,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
 
       // Decode event data from XDR value
       const decoded = this.xdrDecoder.decode(event.value, eventType);
-      const quarantined = !!(decoded.data && (decoded.data as any)._quarantined);
+      const quarantined = !!(
+        decoded.data && (decoded.data as any)._quarantined
+      );
 
       return {
         eventId: event.id,
@@ -495,7 +557,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
    */
   private parseEventType(symbol: string): ContractEventType | null {
     // Map symbol to event type enum
-    const eventType = Object.values(ContractEventType).find((type) => type === symbol);
+    const eventType = Object.values(ContractEventType).find(
+      type => type === symbol,
+    );
     return eventType || null;
   }
 
@@ -548,6 +612,6 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
    * Utility: Sleep for specified milliseconds
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

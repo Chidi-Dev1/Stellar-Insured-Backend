@@ -65,11 +65,9 @@ const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const STELLAR_RE = /G[A-Z2-7]{55}/g;
 const UUID_RE =
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const PHONE_RE =
-  /\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
+const PHONE_RE = /\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
 const IP_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
-const CC_RE =
-  /\b(?:\d{4}[\s-]?){3}\d{4}\b/g;
+const CC_RE = /\b(?:\d{4}[\s-]?){3}\d{4}\b/g;
 const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 
 function redactString(value: string): string {

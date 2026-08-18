@@ -11,7 +11,10 @@ import { IRepository, TransactionClient } from './repository.interface';
  * Every method accepts an optional `tx` so the caller can enlist the
  * repository in a Prisma interactive transaction.
  */
-export abstract class BaseRepository<T, ID = string> implements IRepository<T, ID> {
+export abstract class BaseRepository<T, ID = string> implements IRepository<
+  T,
+  ID
+> {
   constructor(
     protected readonly prisma: PrismaService,
     /** Key on the PrismaClient delegate, e.g. "user" */
@@ -28,15 +31,25 @@ export abstract class BaseRepository<T, ID = string> implements IRepository<T, I
     return this.delegate(tx).findUnique({ where: { id } }) as Promise<T | null>;
   }
 
-  async findMany(args: Record<string, unknown> = {}, tx?: TransactionClient): Promise<T[]> {
+  async findMany(
+    args: Record<string, unknown> = {},
+    tx?: TransactionClient,
+  ): Promise<T[]> {
     return this.delegate(tx).findMany(args) as Promise<T[]>;
   }
 
-  async create(data: Record<string, unknown>, tx?: TransactionClient): Promise<T> {
+  async create(
+    data: Record<string, unknown>,
+    tx?: TransactionClient,
+  ): Promise<T> {
     return this.delegate(tx).create({ data }) as Promise<T>;
   }
 
-  async update(id: ID, data: Record<string, unknown>, tx?: TransactionClient): Promise<T> {
+  async update(
+    id: ID,
+    data: Record<string, unknown>,
+    tx?: TransactionClient,
+  ): Promise<T> {
     return this.delegate(tx).update({ where: { id }, data }) as Promise<T>;
   }
 
@@ -54,7 +67,10 @@ export abstract class BaseRepository<T, ID = string> implements IRepository<T, I
   }
 
   /** Convenience: count records matching the given where clause. */
-  async count(where: Record<string, unknown> = {}, tx?: TransactionClient): Promise<number> {
+  async count(
+    where: Record<string, unknown> = {},
+    tx?: TransactionClient,
+  ): Promise<number> {
     return this.delegate(tx).count({ where }) as Promise<number>;
   }
 

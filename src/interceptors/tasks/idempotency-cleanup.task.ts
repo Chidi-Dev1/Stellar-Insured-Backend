@@ -13,7 +13,7 @@ export class IdempotencyCleanupTask {
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async handleCron() {
     this.logger.debug('Starting stale idempotency key cleanup...');
-    
+
     const staleDate = new Date();
     staleDate.setHours(staleDate.getHours() - this.STALE_THRESHOLD_HOURS);
 

@@ -32,11 +32,17 @@ export class NotificationSettingRepository extends SoftDeleteRepository<Notifica
     super(prisma, 'notificationSetting');
   }
 
-  async findByUserId(userId: string, tx?: TransactionClient): Promise<NotificationSetting | null> {
+  async findByUserId(
+    userId: string,
+    tx?: TransactionClient,
+  ): Promise<NotificationSetting | null> {
     return this.delegate(tx).findUnique({ where: { userId } });
   }
 
-  async upsertForUser(userId: string, tx?: TransactionClient): Promise<NotificationSetting> {
+  async upsertForUser(
+    userId: string,
+    tx?: TransactionClient,
+  ): Promise<NotificationSetting> {
     return this.delegate(tx).upsert({
       where: { userId },
       create: { userId },
@@ -62,7 +68,9 @@ export class EmailOutboxRepository extends SoftDeleteRepository<
   }
 
   async createOutbox(
-    data: Prisma.EmailOutboxCreateInput | Prisma.EmailOutboxUncheckedCreateInput,
+    data:
+      | Prisma.EmailOutboxCreateInput
+      | Prisma.EmailOutboxUncheckedCreateInput,
     tx?: TransactionClient,
   ): Promise<import('@prisma/client').EmailOutbox> {
     return this.delegate(tx).create({ data });

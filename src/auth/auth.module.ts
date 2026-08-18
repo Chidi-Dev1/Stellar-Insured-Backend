@@ -1,18 +1,23 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { UserModule } from '../user/user.module';
-import { NonceModule } from '../nonce/nonce.module';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { UserModule } from '../user/user.module';
+import { NonceModule } from '../nonce/nonce.module';
+import { DatabaseModule } from '../database.module';
+import { InsuranceModule } from '../insurance/insurance.module';
+import { RefreshTokenRepository } from './repositories/refresh-token.repository';
 
 @Module({
   imports: [
     UserModule,
     NonceModule,
+    DatabaseModule,
+    forwardRef(() => InsuranceModule),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -44,7 +49,7 @@ import { AuthController } from './auth.controller';
     }),
   ],
   controllers: [AuthController],
-  providers: [JwtStrategy, AuthService],
+  providers: [JwtStrategy, AuthService, RefreshTokenRepository],
   exports: [PassportModule, JwtModule, AuthService],
 })
 export class AuthModule {}

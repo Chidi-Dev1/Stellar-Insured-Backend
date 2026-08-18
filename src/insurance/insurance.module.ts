@@ -23,7 +23,11 @@ import {
 } from '../common/repositories';
 
 @Module({
-  imports: [DatabaseModule, ReputationModule, forwardRef(() => NotificationModule)],
+  imports: [
+    DatabaseModule,
+    ReputationModule,
+    forwardRef(() => NotificationModule),
+  ],
   controllers: [InsuranceController],
   providers: [
     // Repositories

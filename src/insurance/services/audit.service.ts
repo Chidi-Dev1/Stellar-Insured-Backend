@@ -72,7 +72,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.CREATE, entityType, entityId, null, afterState, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.CREATE,
+      entityType,
+      entityId,
+      null,
+      afterState,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   async logUpdate(
@@ -84,7 +93,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.UPDATE, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.UPDATE,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   async logDelete(
@@ -95,7 +113,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.DELETE, entityType, entityId, beforeState, null, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.DELETE,
+      entityType,
+      entityId,
+      beforeState,
+      null,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   async logApprove(
@@ -107,7 +134,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.APPROVE, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.APPROVE,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   async logReject(
@@ -118,7 +154,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.REJECT, entityType, entityId, beforeState, afterState, undefined, reason, tx);
+    await this.log(
+      AuditAction.REJECT,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      undefined,
+      reason,
+      tx,
+    );
   }
 
   async logPayout(
@@ -130,7 +175,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.PAYOUT, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.PAYOUT,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   async logPurchase(
@@ -141,7 +195,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.PURCHASE, entityType, entityId, null, afterState, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.PURCHASE,
+      entityType,
+      entityId,
+      null,
+      afterState,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   async logUnlockCapital(
@@ -153,7 +216,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.UNLOCK_CAPITAL, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.UNLOCK_CAPITAL,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   async logAddCapital(
@@ -165,7 +237,16 @@ export class AuditService {
     reason?: string,
     tx?: TransactionClient,
   ): Promise<void> {
-    await this.log(AuditAction.ADD_CAPITAL, entityType, entityId, beforeState, afterState, transactionHash, reason, tx);
+    await this.log(
+      AuditAction.ADD_CAPITAL,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+      tx,
+    );
   }
 
   /**
@@ -176,17 +257,29 @@ export class AuditService {
     before: unknown,
     after: unknown,
   ): { beforeState: AuditState; afterState: AuditState } {
-    const b = before && typeof before === 'object' ? { ...(before as Record<string, unknown>) } : {};
-    const a = after && typeof after === 'object' ? { ...(after as Record<string, unknown>) } : {};
+    const b =
+      before && typeof before === 'object'
+        ? { ...(before as Record<string, unknown>) }
+        : {};
+    const a =
+      after && typeof after === 'object'
+        ? { ...(after as Record<string, unknown>) }
+        : {};
     return {
       beforeState: this.toAuditState(this.redactSensitive(b)) ?? null,
       afterState: this.toAuditState(this.redactSensitive(a)) ?? null,
     };
   }
 
-  private redactSensitive(obj: Record<string, unknown>): Record<string, unknown> {
+  private redactSensitive(
+    obj: Record<string, unknown>,
+  ): Record<string, unknown> {
     const redacted = redactValue(obj);
-    if (typeof redacted === 'object' && redacted !== null && !Array.isArray(redacted)) {
+    if (
+      typeof redacted === 'object' &&
+      redacted !== null &&
+      !Array.isArray(redacted)
+    ) {
       return redacted as Record<string, unknown>;
     }
     return obj;
@@ -194,6 +287,8 @@ export class AuditService {
 
   private toAuditState(value: unknown): AuditState | undefined {
     if (value === undefined) return undefined;
-    return JSON.parse(JSON.stringify(redactValue(value))) as Prisma.InputJsonValue;
+    return JSON.parse(
+      JSON.stringify(redactValue(value)),
+    ) as Prisma.InputJsonValue;
   }
 }

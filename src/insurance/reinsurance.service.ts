@@ -12,22 +12,38 @@ export class ReinsuranceService {
     private readonly reinsuranceRepository: ReinsuranceContractRepository,
   ) {}
 
-  async createContract(poolId: string, coverageLimit: Prisma.Decimal, premiumRate: Prisma.Decimal) {
+  async createContract(
+    poolId: string,
+    coverageLimit: Prisma.Decimal,
+    premiumRate: Prisma.Decimal,
+  ) {
     return await this.prisma.$transaction(async tx => {
       const contract = await this.reinsuranceRepository.createContract(
         { poolId, coverageLimit, premiumRate },
         tx,
       );
-      await this.auditService.logCreate('ReinsuranceContract', contract.id, contract, undefined, undefined, tx);
+      await this.auditService.logCreate(
+        'ReinsuranceContract',
+        contract.id,
+        contract,
+        undefined,
+        undefined,
+        tx,
+      );
       return contract;
     });
   }
 
   async releaseContract(contractId: string) {
     return await this.prisma.$transaction(async tx => {
-      const existing = await this.reinsuranceRepository.findByIdStrict(contractId, tx);
+      const existing = await this.reinsuranceRepository.findByIdStrict(
+        contractId,
+        tx,
+      );
       if (!existing) {
-        throw new BadRequestException(`Reinsurance contract ${contractId} not found`);
+        throw new BadRequestException(
+          `Reinsurance contract ${contractId} not found`,
+        );
       }
       // If contract is already released (deleted), check if it's already been processed (idempotent operation)
       // Since we're using soft delete, if deletedAt is not null, the contract is already released
@@ -35,7 +51,10 @@ export class ReinsuranceService {
         return existing;
       }
       const beforeState = { ...existing };
-      const released = await this.reinsuranceRepository.deleteContract(contractId, tx);
+      const released = await this.reinsuranceRepository.deleteContract(
+        contractId,
+        tx,
+      );
       await this.auditService.logDelete(
         'ReinsuranceContract',
         contractId,

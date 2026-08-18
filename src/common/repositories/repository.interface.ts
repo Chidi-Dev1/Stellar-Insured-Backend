@@ -14,16 +14,26 @@ export type TransactionClient = Prisma.TransactionClient;
  */
 export interface IRepository<T, ID = string> {
   findById(id: ID, tx?: TransactionClient): Promise<T | null>;
-  findMany(args?: Record<string, unknown>, tx?: TransactionClient): Promise<T[]>;
+  findMany(
+    args?: Record<string, unknown>,
+    tx?: TransactionClient,
+  ): Promise<T[]>;
   create(data: Record<string, unknown>, tx?: TransactionClient): Promise<T>;
-  update(id: ID, data: Record<string, unknown>, tx?: TransactionClient): Promise<T>;
+  update(
+    id: ID,
+    data: Record<string, unknown>,
+    tx?: TransactionClient,
+  ): Promise<T>;
   delete(id: ID, tx?: TransactionClient): Promise<T>;
 }
 
 /**
  * Extends IRepository with soft-delete helpers.
  */
-export interface ISoftDeleteRepository<T, ID = string> extends IRepository<T, ID> {
+export interface ISoftDeleteRepository<T, ID = string> extends IRepository<
+  T,
+  ID
+> {
   softDelete(id: ID, tx?: TransactionClient): Promise<T>;
   restore(id: ID, tx?: TransactionClient): Promise<T>;
 }

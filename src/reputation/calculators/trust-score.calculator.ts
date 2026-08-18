@@ -28,7 +28,10 @@ export async function calculateTrustScore(
   });
   const totalMilestones: number = milestones.length;
   const completedOnTime: number = milestones.filter(
-    (m: any) => m.status === 'APPROVED' && m.completionDate && m.completionDate <= m.createdAt,
+    (m: any) =>
+      m.status === 'APPROVED' &&
+      m.completionDate &&
+      m.completionDate <= m.createdAt,
   ).length;
   const failedMilestones: number = milestones.filter(
     (m: any) => m.status === 'REJECTED',
@@ -53,7 +56,8 @@ export async function calculateTrustScore(
   score += successfulProjects * 100;
   score += completedOnTime * 50;
   score -= failedMilestones * 75;
-  score += totalRaised > 0 ? Math.round((totalDistributed / totalRaised) * 200) : 0;
+  score +=
+    totalRaised > 0 ? Math.round((totalDistributed / totalRaised) * 200) : 0;
   score = Math.max(0, Math.min(1000, score));
   return score;
 }

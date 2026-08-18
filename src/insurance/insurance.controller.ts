@@ -1,4 +1,12 @@
-import { Controller, Post, Param, Body, UseInterceptors, Version, Get } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Param,
+  Body,
+  UseInterceptors,
+  Version,
+  Get,
+} from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { InsuranceService } from './insurance.service';
 import { ClaimService } from './claim.service';
@@ -23,9 +31,13 @@ export class InsuranceController {
   @Version('1')
   @Post('purchase')
   @UseInterceptors(IdempotencyInterceptor)
-
   async purchase(@Body() body: PurchasePolicyDto) {
-    const policy = await this.insurance.purchasePolicy(body.userId, body.poolId, body.riskType, body.coverageAmount);
+    const policy = await this.insurance.purchasePolicy(
+      body.userId,
+      body.poolId,
+      body.riskType,
+      body.coverageAmount,
+    );
     return SerializationTransformer.transform(policy);
   }
 
@@ -33,7 +45,10 @@ export class InsuranceController {
   @Post('claims')
   @UseInterceptors(IdempotencyInterceptor)
   async createClaim(@Body() body: CreateClaimDto) {
-    const claim = await this.claims.createClaim(body.policyId, body.claimAmount);
+    const claim = await this.claims.createClaim(
+      body.policyId,
+      body.claimAmount,
+    );
     return SerializationTransformer.transform(claim);
   }
 
@@ -42,7 +57,6 @@ export class InsuranceController {
   @Post('claims/:claimId/assess')
   @Throttle({ admin: { limit: 100, ttl: 60000 } }) // 100 assessments per minute for admins
   @UseInterceptors(IdempotencyInterceptor)
-
   async assessClaim(@Param('claimId') claimId: string) {
     const claim = await this.claims.assessClaim(claimId);
     return SerializationTransformer.transform(claim);
@@ -53,7 +67,6 @@ export class InsuranceController {
   @Post('claims/:claimId/pay')
   @Throttle({ admin: { limit: 50, ttl: 60000 } }) // 50 payouts per minute for admins
   @UseInterceptors(IdempotencyInterceptor)
-
   async payClaim(@Param('claimId') claimId: string) {
     const claim = await this.claims.payClaim(claimId);
     return SerializationTransformer.transform(claim);
@@ -64,9 +77,12 @@ export class InsuranceController {
   @Post('reinsurance')
   @Throttle({ admin: { limit: 20, ttl: 60000 } }) // 20 contracts per minute for admins
   @UseInterceptors(IdempotencyInterceptor)
-
   async createReinsurance(@Body() body: CreateReinsuranceDto) {
-    const contract = await this.reinsurance.createContract(body.poolId, body.coverageLimit, body.premiumRate);
+    const contract = await this.reinsurance.createContract(
+      body.poolId,
+      body.coverageLimit,
+      body.premiumRate,
+    );
     return SerializationTransformer.transform(contract);
   }
 

@@ -24,9 +24,11 @@ export class DeadlineAlertTask {
     this.logger.debug('Checking for projects nearing their deadline...');
 
     const now = new Date();
-    const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const twentyFourHoursFromNow = new Date(
+      now.getTime() + 24 * 60 * 60 * 1000,
+    );
 
-    const projects = await this.projectRepository.findMany({
+    const projects = (await this.projectRepository.findMany({
       where: {
         status: 'ACTIVE',
         deadline: { gt: now, lte: twentyFourHoursFromNow },
@@ -37,7 +39,7 @@ export class DeadlineAlertTask {
           distinct: ['investorId'],
         },
       },
-    }) as any[];
+    })) as any[];
 
     for (const project of projects) {
       const alertTitle = `24 Hours Left: ${project.title}`;
@@ -48,7 +50,9 @@ export class DeadlineAlertTask {
 
       if (existingAlerts.length > 0) continue;
 
-      this.logger.log(`Project ${project.id} is ending in < 24 hours. Notifying contributors.`);
+      this.logger.log(
+        `Project ${project.id} is ending in < 24 hours. Notifying contributors.`,
+      );
 
       for (const contribution of project.contributions ?? []) {
         try {

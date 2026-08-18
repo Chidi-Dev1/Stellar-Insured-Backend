@@ -145,6 +145,16 @@ class EnvironmentVariables {
   @IsNumber()
   JWT_EXPIRATION: number;
 
+  /** Number of days before a refresh token expires. */
+  @IsNumber()
+  @IsOptional()
+  JWT_REFRESH_TOKEN_TTL_DAYS: number = 7;
+
+  /** Maximum concurrent sessions (refresh token families) per user. */
+  @IsNumber()
+  @IsOptional()
+  AUTH_MAX_SESSIONS_PER_USER: number = 5;
+
   @IsString()
   STELLAR_NETWORK: string;
 
@@ -223,7 +233,7 @@ function assertJwtStrength(
 ): void {
   const lower = value.toLowerCase();
 
-  if (WEAK_JWT_PLACEHOLDERS.some((p) => lower.includes(p))) {
+  if (WEAK_JWT_PLACEHOLDERS.some(p => lower.includes(p))) {
     throw new Error(
       `${fieldName} contains a placeholder value. ` +
         `Replace it with a strong random secret: openssl rand -base64 48`,

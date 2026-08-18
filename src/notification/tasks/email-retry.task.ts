@@ -3,7 +3,11 @@ import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EmailOutboxRepository } from '../../common/repositories/notification.repository';
-import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
+import {
+  QUEUE_NAMES,
+  EMAIL_MAX_ATTEMPTS,
+  EmailJobData,
+} from '../constants/queue.constants';
 
 @Injectable()
 export class EmailRetryTask {
@@ -23,7 +27,10 @@ export class EmailRetryTask {
   async handleCron() {
     this.logger.debug('Sweeping email outbox for pending retries...');
 
-    const pending = await this.emailOutboxRepository.findPendingBatch(50, EMAIL_MAX_ATTEMPTS);
+    const pending = await this.emailOutboxRepository.findPendingBatch(
+      50,
+      EMAIL_MAX_ATTEMPTS,
+    );
 
     for (const email of pending) {
       this.logger.log(

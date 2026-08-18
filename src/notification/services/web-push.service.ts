@@ -6,7 +6,10 @@ import { randomUUID } from 'crypto';
 import { QUEUE_NAMES, PushJobData } from '../constants/queue.constants';
 import { ConfigService } from '@nestjs/config';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
-import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import {
+  createCircuitBreaker,
+  CircuitBreaker,
+} from '../../common/resilience/circuit-breaker';
 import { withResilience } from '../../common/resilience/resilience';
 import { WEB_PUSH_POLICY } from '../../common/resilience/resilience.constants';
 
@@ -34,9 +37,13 @@ export class WebPushService {
   );
 
   constructor(private readonly configService: ConfigService) {
-    this.publicKey = this.configService.get<string>('notification.vapid.publicKey') || '';
-    const privateKey = this.configService.get<string>('notification.vapid.privateKey') || '';
-    const subjectEmail = this.configService.get<string>('notification.vapid.subjectEmail') || 'admin@novafund.xyz';
+    this.publicKey =
+      this.configService.get<string>('notification.vapid.publicKey') || '';
+    const privateKey =
+      this.configService.get<string>('notification.vapid.privateKey') || '';
+    const subjectEmail =
+      this.configService.get<string>('notification.vapid.subjectEmail') ||
+      'admin@novafund.xyz';
 
     if (this.publicKey && privateKey) {
       webpush.setVapidDetails(
@@ -80,7 +87,7 @@ export class WebPushService {
           retry: {
             ...WEB_PUSH_POLICY.retry,
             // HTTP 410 = subscription no longer valid; never retry those.
-            retryIf: (error) =>
+            retryIf: error =>
               (error as { statusCode?: number })?.statusCode !== 410,
           },
         },
