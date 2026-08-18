@@ -1,7 +1,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 import { AuthService } from '../src/auth/auth.service';
@@ -41,7 +41,7 @@ describe('AuthController (e2e)', () => {
 
   describe('/auth/login (POST)', () => {
     it('should return a JWT token for a valid user and nonce', async () => {
-      const nonce = await nonceService.createNonce(userId);
+      const nonce = await nonceService.generateNonce();
       const loginDto = {
         userId,
         nonce,
@@ -68,7 +68,7 @@ describe('AuthController (e2e)', () => {
     });
 
     it('should reject a login attempt with a used nonce', async () => {
-      const nonce = await nonceService.createNonce(userId);
+      const nonce = await nonceService.generateNonce();
       const loginDto = {
         userId,
         nonce,
