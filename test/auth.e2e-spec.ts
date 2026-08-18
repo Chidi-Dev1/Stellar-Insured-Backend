@@ -26,6 +26,7 @@ describe('Auth (e2e)', () => {
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
     );
     await app.init();
+    //await app.listen(3000); // Uncomment if you want to run the server during tests
 
     prisma = app.get<PrismaService>(PrismaService);
     authService = app.get<AuthService>(AuthService);
