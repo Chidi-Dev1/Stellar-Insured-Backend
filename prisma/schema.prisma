@@ -29,6 +29,7 @@ model User {
   pushSubscription Json?   @map("push_subscription") // Encrypted at rest
 
   // Relations
+  refreshTokens        RefreshToken[]
   createdProjects      Project[]            @relation("ProjectCreator")
   contributions        Contribution[]
   reputationHistory    ReputationHistory[]
@@ -265,6 +266,10 @@ enum AuditAction {
   UNLOCK_CAPITAL
   FRAUD_DETECTED
   ORACLE_VERIFIED
+  LOGIN
+  TOKEN_REFRESH
+  TOKEN_REVOKE
+  TOKEN_REUSE_DETECTED
 }
 
 enum PolicyStatus {
@@ -288,6 +293,28 @@ enum MilestoneStatus {
   REJECTED
   COMPLETED
   FUNDED
+}
+
+model RefreshToken {
+  id            String    @id @default(cuid())
+  token         String    @unique
+  userId        String    @map("user_id")
+  user          User      @relation(fields: [userId], references: [id])
+  familyId      String    @map("family_id") // Groups tokens from the same login session
+  expiresAt     DateTime  @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  replacedByToken String? @map("replaced_by_token") // Points to the token that replaced this one
+  fingerprint   String?   // Device/session fingerprint for abuse detection
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  @@index([userId])
+  @@index([token])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@index([deletedAt])
+  @@map("refresh_tokens")
 }
 
 model LedgerCursor {

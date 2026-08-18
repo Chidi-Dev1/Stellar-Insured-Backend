@@ -145,6 +145,16 @@ class EnvironmentVariables {
   @IsNumber()
   JWT_EXPIRATION: number;
 
+  /** Number of days before a refresh token expires. */
+  @IsNumber()
+  @IsOptional()
+  JWT_REFRESH_TOKEN_TTL_DAYS: number = 7;
+
+  /** Maximum concurrent sessions (refresh token families) per user. */
+  @IsNumber()
+  @IsOptional()
+  AUTH_MAX_SESSIONS_PER_USER: number = 5;
+
   @IsString()
   STELLAR_NETWORK: string;
 
