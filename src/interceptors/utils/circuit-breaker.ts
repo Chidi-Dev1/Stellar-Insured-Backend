@@ -8,7 +8,10 @@
  */
 import { createCircuitBreaker } from '../../common/resilience/circuit-breaker';
 
-export type { CircuitBreaker, CircuitBreakerOptions } from '../../common/resilience/circuit-breaker';
+export type {
+  CircuitBreaker,
+  CircuitBreakerOptions,
+} from '../../common/resilience/circuit-breaker';
 
 // Preserved singleton name for any existing importer.
 export const idempotencyCircuitBreaker = createCircuitBreaker('idempotency-db');

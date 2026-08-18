@@ -1,4 +1,10 @@
-import { Controller, Post, HttpCode, HttpStatus, Version } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  HttpCode,
+  HttpStatus,
+  Version,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiCreatedResponse } from '@nestjs/swagger';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { NonceService } from './nonce.service';

@@ -8,7 +8,11 @@ import { WebPushService } from './web-push.service';
 import { NotificationType } from '../enums/notification-type.enum';
 import { validateEnum } from '../../common/validators/enum.validator';
 import { UserService } from '../../user/user.service';
-import { QUEUE_NAMES, EmailJobData, PushJobData } from '../constants/queue.constants';
+import {
+  QUEUE_NAMES,
+  EmailJobData,
+  PushJobData,
+} from '../constants/queue.constants';
 import {
   NotificationRepository,
   NotificationSettingRepository,
@@ -16,7 +20,10 @@ import {
 } from '../../common/repositories/notification.repository';
 import { TransactionClient } from '../../common/repositories/repository.interface';
 import { getCorrelationId } from '../../common/tracing/tracing-context';
-import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import {
+  createCircuitBreaker,
+  CircuitBreaker,
+} from '../../common/resilience/circuit-breaker';
 import { withResilience } from '../../common/resilience/resilience';
 import { BULL_QUEUE_POLICY } from '../../common/resilience/resilience.constants';
 
@@ -98,7 +105,10 @@ export class NotificationService {
 
     let settings = contactData.notificationSettings;
     if (!settings) {
-      settings = await this.notificationSettingRepository.upsertForUser(userId, tx);
+      settings = await this.notificationSettingRepository.upsertForUser(
+        userId,
+        tx,
+      );
     }
 
     if (type === 'CONTRIBUTION' && !settings.notifyContributions) return null;
@@ -114,7 +124,12 @@ export class NotificationService {
 
     if (settings.emailEnabled && contactData.email) {
       const outbox = await this.emailOutboxRepository.createOutbox(
-        { to: contactData.email, subject: title, html: `<p>${message}</p>`, status: 'PENDING' },
+        {
+          to: contactData.email,
+          subject: title,
+          html: `<p>${message}</p>`,
+          status: 'PENDING',
+        },
         tx,
       );
       prepared.email = {
@@ -125,7 +140,9 @@ export class NotificationService {
       };
     }
 
-    const pushSubscription = this.getPushSubscription(contactData.pushSubscription);
+    const pushSubscription = this.getPushSubscription(
+      contactData.pushSubscription,
+    );
     if (settings.pushEnabled && pushSubscription) {
       prepared.push = {
         subscription: pushSubscription,
@@ -146,7 +163,11 @@ export class NotificationService {
   async dispatchPrepared(
     prepared: PreparedNotification | PreparedNotification[] | null | undefined,
   ): Promise<void> {
-    const items = prepared ? (Array.isArray(prepared) ? prepared : [prepared]) : [];
+    const items = prepared
+      ? Array.isArray(prepared)
+        ? prepared
+        : [prepared]
+      : [];
     for (const item of items) {
       if (item.email) {
         try {
@@ -181,8 +202,11 @@ export class NotificationService {
             },
           );
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.logger.error(`Failed to enqueue email for outbox ${item.email.outboxId}: ${message}`);
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            `Failed to enqueue email for outbox ${item.email.outboxId}: ${message}`,
+          );
         }
       }
 
@@ -210,7 +234,8 @@ export class NotificationService {
             },
           );
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           this.logger.error(`Failed to enqueue push notification: ${message}`);
         }
       }
@@ -230,11 +255,20 @@ export class NotificationService {
     data?: Prisma.InputJsonValue,
     tx?: TransactionClient,
   ): Promise<void> {
-    const prepared = await this.prepareNotification(userId, type, title, message, data, tx);
+    const prepared = await this.prepareNotification(
+      userId,
+      type,
+      title,
+      message,
+      data,
+      tx,
+    );
     await this.dispatchPrepared(prepared);
   }
 
-  private getPushSubscription(value: Prisma.JsonValue | null): webpush.PushSubscription | null {
+  private getPushSubscription(
+    value: Prisma.JsonValue | null,
+  ): webpush.PushSubscription | null {
     if (typeof value === 'string') {
       try {
         const parsed = JSON.parse(value) as unknown;
@@ -246,7 +280,9 @@ export class NotificationService {
     return this.isPushSubscription(value) ? value : null;
   }
 
-  private isPushSubscription(value: unknown): value is webpush.PushSubscription {
+  private isPushSubscription(
+    value: unknown,
+  ): value is webpush.PushSubscription {
     if (typeof value !== 'object' || value === null) return false;
     const candidate = value as Partial<webpush.PushSubscription>;
     return typeof candidate.endpoint === 'string' && Boolean(candidate.keys);

@@ -14,7 +14,7 @@ import { getTracingContext } from '../common/tracing/tracing-context';
  * site. Placed before `redactFormat()` so the redaction pass can apply its
  * trace-aware allowlist to the fields this adds.
  */
-export const tracingFormat = winston.format((info) => {
+export const tracingFormat = winston.format(info => {
   const ctx = getTracingContext();
   if (!ctx) return info;
 
@@ -45,7 +45,9 @@ const consoleFormat = isProduction
 export const winstonConfig: winston.LoggerOptions = {
   level: logLevel,
   exitOnError: false,
-  defaultMeta: { service: process.env.SERVICE_NAME || 'stellar-insured-backend' },
+  defaultMeta: {
+    service: process.env.SERVICE_NAME || 'stellar-insured-backend',
+  },
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.errors({ stack: true }),
@@ -99,7 +101,10 @@ export class NestWinstonLogger implements LoggerService {
   }
 
   error(message: unknown, ...optionalParams: unknown[]): void {
-    this.winstonLogger.error(String(message), this.buildMeta(optionalParams, true));
+    this.winstonLogger.error(
+      String(message),
+      this.buildMeta(optionalParams, true),
+    );
   }
 
   warn(message: unknown, ...optionalParams: unknown[]): void {
@@ -115,7 +120,10 @@ export class NestWinstonLogger implements LoggerService {
   }
 
   fatal(message: unknown, ...optionalParams: unknown[]): void {
-    this.winstonLogger.error(String(message), { ...this.buildMeta(optionalParams, true), fatal: true });
+    this.winstonLogger.error(String(message), {
+      ...this.buildMeta(optionalParams, true),
+      fatal: true,
+    });
   }
 
   /**
@@ -132,7 +140,11 @@ export class NestWinstonLogger implements LoggerService {
     if (params.length > 0 && typeof params[params.length - 1] === 'string') {
       meta.context = params.pop();
     }
-    if (withStack && params.length > 0 && typeof params[params.length - 1] === 'string') {
+    if (
+      withStack &&
+      params.length > 0 &&
+      typeof params[params.length - 1] === 'string'
+    ) {
       meta.trace = params.pop();
     }
 

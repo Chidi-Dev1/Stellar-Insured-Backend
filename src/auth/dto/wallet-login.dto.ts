@@ -19,8 +19,7 @@ export class WalletLoginDto {
   nonce: string;
 
   @ApiPropertyOptional({
-    description:
-      'Optional device/session fingerprint for abuse detection',
+    description: 'Optional device/session fingerprint for abuse detection',
     example: 'device-id-or-fingerprint-hash',
   })
   @IsOptional()

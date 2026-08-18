@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SoftDeleteService } from '../../prisma.soft-delete.service';
-import { LedgerCursor, LedgerInfo, ReorgDetectionResult } from '../types/ledger.types';
+import {
+  LedgerCursor,
+  LedgerInfo,
+  ReorgDetectionResult,
+} from '../types/ledger.types';
 import {
   LedgerCursorRepository,
   ProcessedEventRepository,
@@ -22,11 +26,16 @@ export class LedgerTrackerService {
     private readonly configService: ConfigService,
   ) {
     this.network = this.configService.get<string>('STELLAR_NETWORK', 'testnet');
-    this.reorgDepthThreshold = this.configService.get<number>('INDEXER_REORG_DEPTH_THRESHOLD', 5);
+    this.reorgDepthThreshold = this.configService.get<number>(
+      'INDEXER_REORG_DEPTH_THRESHOLD',
+      5,
+    );
   }
 
   async getLastCursor(): Promise<LedgerCursor | null> {
-    const cursor = await this.ledgerCursorRepository.findByNetwork(this.network);
+    const cursor = await this.ledgerCursorRepository.findByNetwork(
+      this.network,
+    );
     if (!cursor) return null;
     return {
       id: cursor.id,
@@ -58,7 +67,11 @@ export class LedgerTrackerService {
   }
 
   async updateCursor(ledgerSeq: number, ledgerHash?: string): Promise<void> {
-    await this.ledgerCursorRepository.updateCursor(this.network, ledgerSeq, ledgerHash);
+    await this.ledgerCursorRepository.updateCursor(
+      this.network,
+      ledgerSeq,
+      ledgerHash,
+    );
     this.logger.debug(`Updated cursor to ledger ${ledgerSeq}`);
   }
 
@@ -85,7 +98,9 @@ export class LedgerTrackerService {
       return {
         hasReorg,
         reorgDepth: hasReorg ? 1 : 0,
-        lastValidLedger: hasReorg ? currentLedger.sequence - 1 : currentLedger.sequence,
+        lastValidLedger: hasReorg
+          ? currentLedger.sequence - 1
+          : currentLedger.sequence,
         newLatestLedger: currentLedger.sequence,
       };
     }
@@ -118,8 +133,14 @@ export class LedgerTrackerService {
         `Rolling back to ledger ${reorgResult.lastValidLedger}`,
     );
 
-    const rollbackDepth = Math.min(reorgResult.reorgDepth + 2, this.reorgDepthThreshold);
-    const safeLedgerSeq = Math.max(0, reorgResult.lastValidLedger - rollbackDepth);
+    const rollbackDepth = Math.min(
+      reorgResult.reorgDepth + 2,
+      this.reorgDepthThreshold,
+    );
+    const safeLedgerSeq = Math.max(
+      0,
+      reorgResult.lastValidLedger - rollbackDepth,
+    );
 
     // Hard-delete: eventId is unique so soft-deleted rows would block re-processing
     await this.softDelete.hardDeleteMany(
@@ -161,7 +182,9 @@ export class LedgerTrackerService {
 
   async getStartLedger(latestLedger: number): Promise<number> {
     const cursor = await this.getLastCursor();
-    const configuredStart = this.configService.get<number>('INDEXER_START_LEDGER');
+    const configuredStart = this.configService.get<number>(
+      'INDEXER_START_LEDGER',
+    );
 
     if (cursor) return cursor.lastLedgerSeq + 1;
 
@@ -202,7 +225,10 @@ export class LedgerTrackerService {
     });
   }
 
-  async logError(message: string, metadata?: Record<string, unknown>): Promise<void> {
+  async logError(
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
     this.logger.error(message, metadata);
     await this.indexerLogRepository.createLog({
       level: 'error',

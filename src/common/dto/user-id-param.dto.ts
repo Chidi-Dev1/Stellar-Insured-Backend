@@ -6,7 +6,9 @@ export class UserIdParamDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
-  @Transform(({ value }) => (typeof value === 'string' ? sanitizeString(value) : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? sanitizeString(value) : value,
+  )
   @Matches(/^[a-zA-Z0-9]+$/, {
     message: 'userId must be alphanumeric',
   })

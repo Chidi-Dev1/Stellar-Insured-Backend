@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { createCircuitBreaker, CircuitBreaker } from '../common/resilience/circuit-breaker';
+import {
+  createCircuitBreaker,
+  CircuitBreaker,
+} from '../common/resilience/circuit-breaker';
 import { withResilience } from '../common/resilience/resilience';
 import { IDEMPOTENCY_DB_POLICY } from '../common/resilience/resilience.constants';
 
@@ -47,7 +50,9 @@ export class IdempotencyService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findExisting(key: string): Promise<IdempotencyKeyRecord | null> {
-    return this.prisma.idempotencyKey.findUnique({ where: { key } }) as unknown as Promise<IdempotencyKeyRecord | null>;
+    return this.prisma.idempotencyKey.findUnique({
+      where: { key },
+    }) as unknown as Promise<IdempotencyKeyRecord | null>;
   }
 
   /**
@@ -77,7 +82,10 @@ export class IdempotencyService {
   }
 
   /** Re-arm an existing key (expired, or previously FAILED) as PENDING. */
-  async resetToPending(key: string, claim: Omit<IdempotencyClaim, 'key'>): Promise<void> {
+  async resetToPending(
+    key: string,
+    claim: Omit<IdempotencyClaim, 'key'>,
+  ): Promise<void> {
     await this.prisma.idempotencyKey.update({
       where: { key },
       data: {
@@ -93,26 +101,33 @@ export class IdempotencyService {
   }
 
   /** Record the cached response after the handler completed successfully. */
-  async markCompleted(key: string, response: unknown, statusCode: number): Promise<void> {
-    await withResilience(
-      this.circuitBreaker,
-      () =>
-        this.prisma.idempotencyKey.update({
-          where: { key },
-          data: {
-            status: 'COMPLETED',
-            response: {
-              data: response,
-              statusCode,
-            } as unknown as Prisma.InputJsonValue,
-          },
-        }),
+  async markCompleted(
+    key: string,
+    response: unknown,
+    statusCode: number,
+  ): Promise<void> {
+    await withResilience(this.circuitBreaker, () =>
+      this.prisma.idempotencyKey.update({
+        where: { key },
+        data: {
+          status: 'COMPLETED',
+          response: {
+            data: response,
+            statusCode,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      }),
     );
   }
 
   /** Record a handler failure so a retry can re-run the operation safely. */
-  async markFailed(key: string, error: unknown, statusCode: number): Promise<void> {
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+  async markFailed(
+    key: string,
+    error: unknown,
+    statusCode: number,
+  ): Promise<void> {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Internal server error';
     await this.prisma.idempotencyKey.update({
       where: { key },
       data: {

@@ -106,14 +106,16 @@ export function sanitizeObject(
 
   // Arrays — sanitize each element
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_OBJECT_KEYS).map((item) => sanitizeObject(item, depth + 1, visited));
+    return value
+      .slice(0, MAX_OBJECT_KEYS)
+      .map(item => sanitizeObject(item, depth + 1, visited));
   }
 
   // Objects — sanitize keys and values
   if (typeof value === 'object') {
     // Cycle detection
-    if (visited.has(value as object)) return undefined;
-    visited.add(value as object);
+    if (visited.has(value)) return undefined;
+    visited.add(value);
 
     const sanitized: Record<string, unknown> = {};
     const entries = Object.entries(value as Record<string, unknown>);

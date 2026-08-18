@@ -7,7 +7,10 @@ import {
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { randomBytes } from 'crypto';
-import { createCircuitBreaker, CircuitBreaker } from '../common/resilience/circuit-breaker';
+import {
+  createCircuitBreaker,
+  CircuitBreaker,
+} from '../common/resilience/circuit-breaker';
 import { withResilience } from '../common/resilience/resilience';
 import { REDIS_NONCE_POLICY } from '../common/resilience/resilience.constants';
 
@@ -89,18 +92,18 @@ export class NonceService {
     );
 
     if (!stored) {
-      this.logger.warn(`Nonce validation failed — unknown or expired: ${nonce}`);
+      this.logger.warn(
+        `Nonce validation failed — unknown or expired: ${nonce}`,
+      );
       throw new BadRequestException(
         'Nonce is invalid, expired, or has already been used.',
       );
     }
 
     // Delete immediately so it cannot be replayed.
-    await withResilience(
-      this.redisBreaker,
-      () => this.cache.del(key),
-      { retry: REDIS_NONCE_POLICY.retry },
-    );
+    await withResilience(this.redisBreaker, () => this.cache.del(key), {
+      retry: REDIS_NONCE_POLICY.retry,
+    });
 
     this.logger.debug(`Nonce consumed: ${nonce}`);
     return true;
@@ -158,7 +161,9 @@ export class NonceService {
     );
 
     if (!stored) {
-      this.logger.warn(`Nonce validation failed — unknown or expired: ${nonce}`);
+      this.logger.warn(
+        `Nonce validation failed — unknown or expired: ${nonce}`,
+      );
       throw new BadRequestException(
         'Nonce is invalid, expired, or has already been used.',
       );

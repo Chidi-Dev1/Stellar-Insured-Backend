@@ -29,11 +29,13 @@ import { NonceController } from './nonce.controller';
         );
 
         if (redisEnabled) {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
           const { redisStore } = require('cache-manager-redis-yet');
           return {
             store: redisStore,
-            url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
+            url: configService.get<string>(
+              'REDIS_URL',
+              'redis://localhost:6379',
+            ),
             ttl: configService.get<number>('REDIS_TTL', 3600) * 1000,
           };
         }

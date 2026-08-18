@@ -19,9 +19,17 @@ export class ReputationService {
     return score;
   }
 
-  async adjustReputation(userId: string, delta: number, reason: string, tx?: TransactionClient): Promise<number> {
+  async adjustReputation(
+    userId: string,
+    delta: number,
+    reason: string,
+    tx?: TransactionClient,
+  ): Promise<number> {
     const execute = async (client: TransactionClient) => {
-      const user = await this.reputationRepository.findUserScore(userId, client);
+      const user = await this.reputationRepository.findUserScore(
+        userId,
+        client,
+      );
       const current = user?.reputationScore ?? 0;
       const clamped = Math.max(0, Math.min(1000, current + delta));
 
@@ -34,7 +42,9 @@ export class ReputationService {
       return clamped;
     };
 
-    const newScore = tx ? await execute(tx) : await this.prisma.$transaction(execute);
+    const newScore = tx
+      ? await execute(tx)
+      : await this.prisma.$transaction(execute);
 
     this.logger.log(
       `Reputation adjusted for user ${userId}: delta=${delta}, reason="${reason}", newScore=${newScore}`,

@@ -19,7 +19,10 @@ export class LedgerCursorRepository extends SoftDeleteRepository<LedgerCursor> {
     super(prisma, 'ledgerCursor');
   }
 
-  async findByNetwork(network: string, tx?: TransactionClient): Promise<LedgerCursor | null> {
+  async findByNetwork(
+    network: string,
+    tx?: TransactionClient,
+  ): Promise<LedgerCursor | null> {
     return this.delegate(tx).findUnique({ where: { network } });
   }
 
@@ -32,7 +35,11 @@ export class LedgerCursorRepository extends SoftDeleteRepository<LedgerCursor> {
     return this.delegate(tx).upsert({
       where: { network },
       update: { lastLedgerSeq, lastLedgerHash: lastLedgerHash ?? null },
-      create: { network, lastLedgerSeq, lastLedgerHash: lastLedgerHash ?? null },
+      create: {
+        network,
+        lastLedgerSeq,
+        lastLedgerHash: lastLedgerHash ?? null,
+      },
     });
   }
 

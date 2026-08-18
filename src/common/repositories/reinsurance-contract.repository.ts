@@ -24,7 +24,10 @@ export class ReinsuranceContractRepository extends SoftDeleteRepository<Reinsura
     return this.delegate(tx).findUnique({ where: { id } });
   }
 
-  async deleteContract(id: string, tx?: TransactionClient): Promise<ReinsuranceContract> {
+  async deleteContract(
+    id: string,
+    tx?: TransactionClient,
+  ): Promise<ReinsuranceContract> {
     return this.delegate(tx).delete({ where: { id } });
   }
 }

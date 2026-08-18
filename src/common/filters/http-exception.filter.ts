@@ -223,7 +223,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const constraint = msg;
 
       if (!fieldMap.has(field)) fieldMap.set(field, []);
-      fieldMap.get(field)!.push(constraint);
+      fieldMap.get(field).push(constraint);
     }
 
     return Array.from(fieldMap.entries()).map(([field, constraints]) => ({

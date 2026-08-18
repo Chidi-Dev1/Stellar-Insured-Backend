@@ -3,13 +3,20 @@ import { Process, Processor } from '@nestjs/bull';
 import * as sgMail from '@sendgrid/mail';
 import { Job } from 'bull';
 import { EmailOutboxRepository } from '../../common/repositories/notification.repository';
-import { QUEUE_NAMES, EMAIL_MAX_ATTEMPTS, EmailJobData } from '../constants/queue.constants';
+import {
+  QUEUE_NAMES,
+  EMAIL_MAX_ATTEMPTS,
+  EmailJobData,
+} from '../constants/queue.constants';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma.service';
 import { runWithTracingContext } from '../../common/tracing/tracing-context';
 
 import { ConfigService } from '@nestjs/config';
-import { createCircuitBreaker, CircuitBreaker } from '../../common/resilience/circuit-breaker';
+import {
+  createCircuitBreaker,
+  CircuitBreaker,
+} from '../../common/resilience/circuit-breaker';
 import { withResilience } from '../../common/resilience/resilience';
 import { SENDGRID_POLICY } from '../../common/resilience/resilience.constants';
 
@@ -34,9 +41,11 @@ export class EmailService {
     private readonly emailOutboxRepository: EmailOutboxRepository,
     private readonly configService: ConfigService,
   ) {
-    this.apiKey = this.configService.get<string>('notification.sendgrid.apiKey') || '';
+    this.apiKey =
+      this.configService.get<string>('notification.sendgrid.apiKey') || '';
     this.fromEmail =
-      this.configService.get<string>('notification.sendgrid.fromEmail') || 'noreply@novafund.xyz';
+      this.configService.get<string>('notification.sendgrid.fromEmail') ||
+      'noreply@novafund.xyz';
     sgMail.setApiKey(this.apiKey);
   }
 
@@ -96,6 +105,9 @@ export class EmailService {
   }
 
   private async markFailed(outboxId: string, reason: string): Promise<void> {
-    await this.emailOutboxRepository.updateStatus(outboxId, { status: 'FAILED', lastError: reason });
+    await this.emailOutboxRepository.updateStatus(outboxId, {
+      status: 'FAILED',
+      lastError: reason,
+    });
   }
 }

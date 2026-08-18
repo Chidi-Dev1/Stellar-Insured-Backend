@@ -7,7 +7,11 @@ import { UserRepository } from '../common/repositories/user.repository';
 import { InsuranceModule } from '../insurance/insurance.module';
 
 @Module({
-  imports: [DatabaseModule, EncryptionModule, forwardRef(() => InsuranceModule)],
+  imports: [
+    DatabaseModule,
+    EncryptionModule,
+    forwardRef(() => InsuranceModule),
+  ],
   controllers: [UserController],
   providers: [UserRepository, UserService],
   exports: [UserService, UserRepository],

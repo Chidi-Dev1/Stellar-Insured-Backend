@@ -15,7 +15,7 @@ import storageConfig from './config/storage.config';
 
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
-import { NonceModule } from './nonce/nonce.module';         // ← NEW
+import { NonceModule } from './nonce/nonce.module'; // ← NEW
 import { ReputationModule } from './reputation/reputation.module';
 import { DatabaseModule } from './database.module';
 import { IndexerModule } from './indexer/indexer.module';
@@ -68,7 +68,7 @@ import { IdempotencyCleanupTask } from './interceptors/tasks/idempotency-cleanup
     // Feature modules
     AuthModule,
     UserModule,
-    NonceModule,           // ← NEW: nonce replay-prevention now wired in
+    NonceModule, // ← NEW: nonce replay-prevention now wired in
     ReputationModule,
     DatabaseModule,
     IndexerModule,
@@ -97,7 +97,7 @@ import { IdempotencyCleanupTask } from './interceptors/tasks/idempotency-cleanup
 
     // Idempotency cleanup task - removes stale keys daily
     IdempotencyCleanupTask,
-    
+
     // Global exception filter — all thrown exceptions return ErrorResponseDto.
     // This replaces the four inconsistent error formats previously in the codebase.
     {

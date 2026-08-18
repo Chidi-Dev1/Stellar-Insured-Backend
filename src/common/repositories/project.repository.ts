@@ -12,7 +12,10 @@ export class ProjectRepository extends SoftDeleteRepository<Project> {
     super(prisma, 'project');
   }
 
-  async findByContractId(contractId: string, tx?: TransactionClient): Promise<Project | null> {
+  async findByContractId(
+    contractId: string,
+    tx?: TransactionClient,
+  ): Promise<Project | null> {
     return this.delegate(tx).findUnique({ where: { contractId } });
   }
 
@@ -45,8 +48,13 @@ export class ProjectRepository extends SoftDeleteRepository<Project> {
     return this.delegate(tx).update({ where: { id }, data });
   }
 
-  async countCompleted(creatorId: string, tx?: TransactionClient): Promise<number> {
-    return this.delegate(tx).count({ where: { creatorId, status: 'COMPLETED' } });
+  async countCompleted(
+    creatorId: string,
+    tx?: TransactionClient,
+  ): Promise<number> {
+    return this.delegate(tx).count({
+      where: { creatorId, status: 'COMPLETED' },
+    });
   }
 
   async findByCreatorWithFunds(

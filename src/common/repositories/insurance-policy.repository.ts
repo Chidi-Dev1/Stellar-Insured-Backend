@@ -18,7 +18,9 @@ export class InsurancePolicyRepository extends SoftDeleteRepository<InsurancePol
   }
 
   async createPolicy(
-    data: Prisma.InsurancePolicyCreateInput | Prisma.InsurancePolicyUncheckedCreateInput,
+    data:
+      | Prisma.InsurancePolicyCreateInput
+      | Prisma.InsurancePolicyUncheckedCreateInput,
     tx?: TransactionClient,
   ): Promise<InsurancePolicy> {
     return this.delegate(tx).create({ data });

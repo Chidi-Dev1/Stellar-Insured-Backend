@@ -40,8 +40,18 @@ export class UserController {
   @Get()
   @ApiOperation({ summary: 'List users with pagination' })
   @ApiOkResponse({ description: 'A paginated collection of users' })
-  @ApiQuery({ name: 'page', type: Number, required: false, description: 'Page number' })
-  @ApiQuery({ name: 'limit', type: Number, required: false, description: 'Number of users per page' })
+  @ApiQuery({
+    name: 'page',
+    type: Number,
+    required: false,
+    description: 'Page number',
+  })
+  @ApiQuery({
+    name: 'limit',
+    type: Number,
+    required: false,
+    description: 'Number of users per page',
+  })
   async getUsers(@Query() pagination: PaginationQueryDto) {
     const { page, limit } = pagination;
     return this.userService.findPaginated(page, limit);
@@ -62,8 +72,14 @@ export class UserController {
   @Version('1')
   @Get('wallet/:address')
   @ApiOperation({ summary: 'Retrieve a user by wallet address' })
-  @ApiParam({ name: 'address', type: String, description: 'Wallet address to search by' })
-  @ApiOkResponse({ description: 'User data associated with the wallet address' })
+  @ApiParam({
+    name: 'address',
+    type: String,
+    description: 'Wallet address to search by',
+  })
+  @ApiOkResponse({
+    description: 'User data associated with the wallet address',
+  })
   async getUserByWallet(@Param() params: WalletAddressDto) {
     const user = await this.userService.findByWallet(params.address);
     return this.mapUserResponse(user);
@@ -73,7 +89,11 @@ export class UserController {
   @Version('1')
   @Patch(':id')
   @ApiOperation({ summary: 'Update a user profile' })
-  @ApiParam({ name: 'id', type: String, description: 'ID of the user to update' })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    description: 'ID of the user to update',
+  })
   @ApiBody({ type: UpdateUserDto })
   @ApiOkResponse({ description: 'Updated user data' })
   async updateUser(
@@ -88,7 +108,11 @@ export class UserController {
   @Version('1')
   @Delete(':id')
   @ApiOperation({ summary: 'Soft delete a user' })
-  @ApiParam({ name: 'id', type: String, description: 'ID of the user to delete' })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    description: 'ID of the user to delete',
+  })
   @ApiOkResponse({ description: 'Deletion result' })
   async deleteUser(@Param() params: UserParamsDto) {
     const result = await this.userService.delete(params.id);
@@ -111,4 +135,3 @@ export class UserController {
     }) as Record<string, unknown>;
   }
 }
-

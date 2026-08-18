@@ -208,7 +208,7 @@ async function bootstrap() {
   const port = configService.get<number>('app.port', 3000);
   await app.listen(port);
 
-  const server = app.getHttpServer() as any;
+  const server = app.getHttpServer();
   if (typeof server?.setTimeout === 'function') {
     server.setTimeout(requestTimeoutMs);
   }

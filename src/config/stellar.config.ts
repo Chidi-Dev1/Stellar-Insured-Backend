@@ -22,9 +22,12 @@ export interface IndexerConfig {
 
 export default registerAs('stellar', () => ({
   network: process.env.STELLAR_NETWORK || 'testnet',
-  horizonUrl: process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org',
+  horizonUrl:
+    process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org',
   rpcUrl: process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org',
-  networkPassphrase: process.env.STELLAR_NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015',
+  networkPassphrase:
+    process.env.STELLAR_NETWORK_PASSPHRASE ||
+    'Test SDF Network ; September 2015',
   projectLaunchContractId: process.env.PROJECT_LAUNCH_CONTRACT_ID || '',
   escrowContractId: process.env.ESCROW_CONTRACT_ID || '',
   profitDistributionContractId: process.env.PROFIT_DISTRIBUTION_CONTRACT_ID,
@@ -38,6 +41,12 @@ export const indexerConfig = registerAs('indexer', () => ({
   startLedger: process.env.INDEXER_START_LEDGER
     ? parseInt(process.env.INDEXER_START_LEDGER, 10)
     : undefined,
-  reorgDepthThreshold: parseInt(process.env.INDEXER_REORG_DEPTH_THRESHOLD || '5', 10),
-  maxEventsPerFetch: parseInt(process.env.INDEXER_MAX_EVENTS_PER_FETCH || '100', 10),
+  reorgDepthThreshold: parseInt(
+    process.env.INDEXER_REORG_DEPTH_THRESHOLD || '5',
+    10,
+  ),
+  maxEventsPerFetch: parseInt(
+    process.env.INDEXER_MAX_EVENTS_PER_FETCH || '100',
+    10,
+  ),
 }));

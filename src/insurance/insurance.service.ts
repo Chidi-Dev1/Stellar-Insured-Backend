@@ -9,7 +9,10 @@ import { InsurancePolicy } from '@prisma/client';
 import { InsurancePolicyRepository } from '../common/repositories/insurance-policy.repository';
 import { PrismaService } from '../prisma.service';
 import { updateTracingContext } from '../common/tracing/tracing-context';
-import { NotificationService, PreparedNotification } from '../notification/services/notification.service';
+import {
+  NotificationService,
+  PreparedNotification,
+} from '../notification/services/notification.service';
 import { NotificationType } from '../notification/enums/notification-type.enum';
 
 @Injectable()
@@ -66,7 +69,14 @@ export class InsuranceService {
       );
 
       updateTracingContext({ entityId: created.id });
-      await this.auditService.logPurchase('InsurancePolicy', created.id, created, undefined, 'Policy purchased', tx);
+      await this.auditService.logPurchase(
+        'InsurancePolicy',
+        created.id,
+        created,
+        undefined,
+        'Policy purchased',
+        tx,
+      );
 
       // Persist the notification row inside the same transaction so it can
       // never reference an uncommitted policy. Queue dispatch happens only
@@ -76,7 +86,11 @@ export class InsuranceService {
         NotificationType.POLICY_PURCHASED,
         'Policy Purchased',
         `Your ${riskType} policy is now active with coverage of ${coverageAmount.toString()}.`,
-        { policyId: created.id, riskType, coverageAmount: coverageAmount.toString() },
+        {
+          policyId: created.id,
+          riskType,
+          coverageAmount: coverageAmount.toString(),
+        },
         tx,
       );
       return created;
@@ -96,13 +110,28 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
-      if (policy.status === PolicyStatus.CANCELLED || policy.status === PolicyStatus.EXPIRED) {
+      if (
+        policy.status === PolicyStatus.CANCELLED ||
+        policy.status === PolicyStatus.EXPIRED
+      ) {
         return policy;
       }
       const beforeState = { ...policy };
-      const updated = await this.policyRepository.updateStatus(policyId, PolicyStatus.CANCELLED, tx);
-      await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal, tx);
-      await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy cancelled', tx);
+      const updated = await this.policyRepository.updateStatus(
+        policyId,
+        PolicyStatus.CANCELLED,
+        tx,
+      );
+      await this.pools.unlockCapital(policy.poolId, policy.coverageAmount, tx);
+      await this.auditService.logUpdate(
+        'InsurancePolicy',
+        policyId,
+        beforeState,
+        updated,
+        undefined,
+        'Policy cancelled',
+        tx,
+      );
       return updated;
     });
   }
@@ -114,13 +143,28 @@ export class InsuranceService {
       if (!policy) {
         throw new BadRequestException(`Policy ${policyId} not found`);
       }
-      if (policy.status === PolicyStatus.EXPIRED || policy.status === PolicyStatus.CANCELLED) {
+      if (
+        policy.status === PolicyStatus.EXPIRED ||
+        policy.status === PolicyStatus.CANCELLED
+      ) {
         return policy;
       }
       const beforeState = { ...policy };
-      const updated = await this.policyRepository.updateStatus(policyId, PolicyStatus.EXPIRED, tx);
-      await this.pools.unlockCapital(policy.poolId, policy.coverageAmount as Prisma.Decimal, tx);
-      await this.auditService.logUpdate('InsurancePolicy', policyId, beforeState, updated, undefined, 'Policy expired', tx);
+      const updated = await this.policyRepository.updateStatus(
+        policyId,
+        PolicyStatus.EXPIRED,
+        tx,
+      );
+      await this.pools.unlockCapital(policy.poolId, policy.coverageAmount, tx);
+      await this.auditService.logUpdate(
+        'InsurancePolicy',
+        policyId,
+        beforeState,
+        updated,
+        undefined,
+        'Policy expired',
+        tx,
+      );
       return updated;
     });
   }

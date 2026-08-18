@@ -6,7 +6,9 @@ export class StorageKeyDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(1024)
-  @Transform(({ value }) => (typeof value === 'string' ? sanitizeString(value) : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? sanitizeString(value) : value,
+  )
   @Matches(/^[A-Za-z0-9_\-./]+$/, {
     message: 'Storage key contains invalid characters',
   })
