@@ -103,7 +103,7 @@ export class AuthService {
 
     // 3. Create tokens inside a transaction so partial failure is impossible.
     const familyId = this.generateFamilyId();
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async tx => {
       const accessToken = this.signAccessToken(user.id, user.walletAddress);
       const refreshToken = await this.createRefreshToken(
         user.id,
@@ -157,24 +157,23 @@ export class AuthService {
     fingerprint?: string,
     ip?: string,
   ): Promise<TokenPairResponse> {
-    const storedToken = await this.refreshTokenRepo.findByToken(
-      refreshTokenValue,
-    );
+    const storedToken =
+      await this.refreshTokenRepo.findByToken(refreshTokenValue);
 
     // ── Token not found ──────────────────────────────────────────────────
     if (!storedToken) {
       this.logger.warn(
         `Refresh attempt with unknown token from ${ip ?? 'unknown'}`,
       );
-    await this.auditService.log(
-      AuditAction.REJECT,
-      'RefreshToken',
-      'unknown',
-      null,
-      { reason: 'token_not_found', ip },
-      undefined,
-      'Refresh token not found',
-    );
+      await this.auditService.log(
+        AuditAction.REJECT,
+        'RefreshToken',
+        'unknown',
+        null,
+        { reason: 'token_not_found', ip },
+        undefined,
+        'Refresh token not found',
+      );
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -201,7 +200,7 @@ export class AuthService {
         `Refresh-token reuse detected for user ${storedToken.userId} ` +
           `family ${storedToken.familyId} — revoking entire family`,
       );
-      await this.prisma.$transaction(async (tx) => {
+      await this.prisma.$transaction(async tx => {
         await this.refreshTokenRepo.revokeFamily(storedToken.familyId, tx);
       });
       await this.auditService.log(
@@ -243,7 +242,7 @@ export class AuthService {
     const user = await this.userService.findById(storedToken.userId);
     const newFamilyId = storedToken.familyId; // keep the same family
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async tx => {
       // Revoke the old token, recording which token replaced it.
       // We'll know the new token value after creation, so we use a placeholder
       // and update afterwards (within the same transaction).
@@ -301,7 +300,7 @@ export class AuthService {
   ): Promise<{ revoked: number }> {
     let revoked = 0;
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async tx => {
       if (specificToken) {
         const stored = await this.refreshTokenRepo.findByToken(
           specificToken,
@@ -326,9 +325,7 @@ export class AuthService {
       `Logout: revoked ${revoked} token(s)`,
     );
 
-    this.logger.log(
-      `Logout for user ${userId}: revoked ${revoked} token(s)`,
-    );
+    this.logger.log(`Logout for user ${userId}: revoked ${revoked} token(s)`);
 
     return { revoked };
   }
@@ -371,7 +368,9 @@ export class AuthService {
         userId,
         familyId,
         expiresAt,
-        fingerprint: fingerprint ? this.hashFingerprint(fingerprint) : undefined,
+        fingerprint: fingerprint
+          ? this.hashFingerprint(fingerprint)
+          : undefined,
       },
       tx,
     );
@@ -405,11 +404,7 @@ export class AuthService {
       });
 
       for (const t of oldestTokens) {
-        await this.refreshTokenRepo.revokeToken(
-          t.token,
-          undefined,
-          tx,
-        );
+        await this.refreshTokenRepo.revokeToken(t.token, undefined, tx);
       }
 
       this.logger.debug(
@@ -440,11 +435,16 @@ export class AuthService {
     if (!match) return 900; // default 15 min
     const value = parseInt(match[1], 10);
     switch (match[2]) {
-      case 's': return value;
-      case 'm': return value * 60;
-      case 'h': return value * 3600;
-      case 'd': return value * 86400;
-      default: return 900;
+      case 's':
+        return value;
+      case 'm':
+        return value * 60;
+      case 'h':
+        return value * 3600;
+      case 'd':
+        return value * 86400;
+      default:
+        return 900;
     }
   }
 }

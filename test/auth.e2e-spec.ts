@@ -134,6 +134,7 @@ describe('Auth (e2e)', () => {
       const firstRefresh = await request(app.getHttpServer())
         .post('/v1/auth/refresh')
         .send({ refresh_token: refreshToken })
+
         .expect(201);
 
       const newRefreshToken = firstRefresh.body.refresh_token;
