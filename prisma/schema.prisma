@@ -15,7 +15,7 @@ datasource db {
 // reputation, and notification workflows still depend on them.
 
 model User {
-  id              String    @id @default(cuid())
+  id              String    @id @default(uuid())
   walletAddress   String    @unique @map("wallet_address") // Public blockchain identifier
   profileData     Json?     @map("profile_data")
   reputationScore Int       @default(0) @map("reputation_score")
@@ -43,7 +43,7 @@ model User {
 }
 
 model Project {
-  id           String        @id @default(cuid())
+  id           String        @id @default(uuid())
   contractId   String        @unique @map("contract_id")
   creatorId    String        @map("creator_id")
   creator      User          @relation("ProjectCreator", fields: [creatorId], references: [id])
@@ -70,7 +70,7 @@ model Project {
 }
 
 model Contribution {
-  id              String    @id @default(cuid())
+  id              String    @id @default(uuid())
   transactionHash String    @unique @map("transaction_hash")
   investorId      String    @map("investor_id")
   investor        User      @relation(fields: [investorId], references: [id])
@@ -90,7 +90,7 @@ model Contribution {
 }
 
 model Milestone {
-  id             String          @id @default(cuid())
+  id             String          @id @default(uuid())
   projectId      String          @map("project_id")
   project        Project         @relation(fields: [projectId], references: [id])
   title          String
@@ -109,7 +109,7 @@ model Milestone {
 }
 
 model ReputationHistory {
-  id          String    @id @default(cuid())
+  id          String    @id @default(uuid())
   userId      String    @map("user_id")
   user        User      @relation(fields: [userId], references: [id])
   scoreChange Int       @map("score_change")
@@ -126,7 +126,7 @@ model ReputationHistory {
 }
 
 model Category {
-  id          String    @id @default(cuid())
+  id          String    @id @default(uuid())
   name        String    @unique
   description String?
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -296,7 +296,7 @@ enum MilestoneStatus {
 }
 
 model RefreshToken {
-  id            String    @id @default(cuid())
+  id            String    @id @default(uuid())
   token         String    @unique
   userId        String    @map("user_id")
   user          User      @relation(fields: [userId], references: [id])
@@ -318,7 +318,7 @@ model RefreshToken {
 }
 
 model LedgerCursor {
-  id             String    @id @default(cuid())
+  id             String    @id @default(uuid())
   network        String    @unique
   lastLedgerSeq  Int       @map("last_ledger_seq")
   lastLedgerHash String?   @map("last_ledger_hash")
@@ -331,7 +331,7 @@ model LedgerCursor {
 }
 
 model ProcessedEvent {
-  id              String    @id @default(cuid())
+  id              String    @id @default(uuid())
   eventId         String    @unique @map("event_id")
   network         String
   ledgerSeq       Int       @map("ledger_seq")
@@ -348,7 +348,7 @@ model ProcessedEvent {
 }
 
 model QuarantinedEvent {
-  id              String   @id @default(cuid())
+  id              String   @id @default(uuid())
   eventId         String   @unique @map("event_id")
   network         String
   contractId      String   @map("contract_id")
@@ -367,7 +367,7 @@ model QuarantinedEvent {
 }
 
 model IndexerLog {
-  id        String    @id @default(cuid())
+  id        String    @id @default(uuid())
   level     String
   message   String
   metadata  Json?
@@ -382,7 +382,7 @@ model IndexerLog {
 }
 
 model NotificationSetting {
-  id                  String    @id @default(cuid())
+  id                  String    @id @default(uuid())
   userId              String    @unique @map("user_id")
   user                User      @relation(fields: [userId], references: [id])
   emailEnabled        Boolean   @default(true) @map("email_enabled")
@@ -399,7 +399,7 @@ model NotificationSetting {
 }
 
 model Notification {
-  id        String           @id @default(cuid())
+  id        String           @id @default(uuid())
   userId    String           @map("user_id")
   user      User             @relation(fields: [userId], references: [id])
   type      NotificationType
@@ -417,7 +417,7 @@ model Notification {
 }
 
 model EmailOutbox {
-  id        String      @id @default(cuid())
+  id        String      @id @default(uuid())
   to        String
   subject   String
   html      String
@@ -435,7 +435,7 @@ model EmailOutbox {
 }
 
 model IdempotencyKey {
-  id          String    @id @default(cuid())
+  id          String    @id @default(uuid())
   key         String    @unique
   method      String
   endpoint    String
