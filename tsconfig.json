@@ -25,7 +25,8 @@
   },
   "include": [
     "src/**/*.ts",
+    "test/**/*.ts",
     "ormconfig.ts"
   ],
-  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist"]
 }

@@ -119,7 +119,10 @@ export class InsuranceController {
   @Throttle({ admin: { limit: 20, ttl: 60000 } }) // 20 releases per minute for admins
   @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Release a reinsurance contract' })
-  @ApiParam({ name: 'contractId', description: 'ID of the contract to release' })
+  @ApiParam({
+    name: 'contractId',
+    description: 'ID of the contract to release',
+  })
   @ApiOkResponse({ description: 'Contract released' })
   async releaseReinsurance(@Param('contractId') contractId: string) {
     const contract = await this.reinsurance.releaseContract(contractId);
