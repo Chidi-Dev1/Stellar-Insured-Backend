@@ -19,9 +19,12 @@ import {
   ContributionRepository,
 } from '../common/repositories/project.repository';
 
+import { EncryptionModule } from '../encryption/encryption.module';
+
 @Module({
   imports: [
     DatabaseModule,
+    EncryptionModule,
     forwardRef(() => UserModule),
     forwardRef(() => InsuranceModule),
     QueueModule,

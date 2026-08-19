@@ -63,7 +63,7 @@ class EnvironmentVariables {
   DATABASE_SSL_REJECT_UNAUTHORIZED: boolean = false;
 
   // Redis Configuration
-  @IsUrl({ protocols: ['redis', 'rediss'] })
+  @IsUrl({ protocols: ['redis', 'rediss'], require_tld: false })
   @IsOptional()
   REDIS_URL: string = 'redis://localhost:6379';
 

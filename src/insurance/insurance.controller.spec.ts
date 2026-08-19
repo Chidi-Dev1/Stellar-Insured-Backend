@@ -5,6 +5,7 @@ import { InsuranceService } from './insurance.service';
 import { ClaimService } from './claim.service';
 import { ReinsuranceService } from './reinsurance.service';
 import { IdempotencyInterceptor } from '../interceptors/idempotency.interceptor';
+import { IdempotencyService } from '../interceptors/idempotency.service';
 import { RiskType } from './enums/risk-type.enum';
 
 describe('InsuranceController', () => {
@@ -40,6 +41,16 @@ describe('InsuranceController', () => {
           provide: IdempotencyInterceptor,
           useValue: {
             intercept: jest.fn((_: any, next: any) => next.handle()),
+          },
+        },
+        {
+          provide: IdempotencyService,
+          useValue: {
+            findExisting: jest.fn(),
+            claim: jest.fn(),
+            markCompleted: jest.fn(),
+            markFailed: jest.fn(),
+            resetToPending: jest.fn(),
           },
         },
       ],

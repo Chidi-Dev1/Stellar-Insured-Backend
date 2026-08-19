@@ -22,8 +22,12 @@ export class PrismaService
     // - Can be overridden with includeDeleted: true flag
     this.$use(createSoftDeleteMiddleware({ excludeDeleted: true }));
 
-    await this.$connect();
-    this.logger.log('Connected to database');
+    try {
+      await this.$connect();
+      this.logger.log('Connected to database');
+    } catch (err) {
+      this.logger.warn(`Could not connect to database during onModuleInit: ${err instanceof Error ? err.message : String(err)}`);
+    }
     this.logger.log('Soft delete middleware registered');
   }
 

@@ -46,7 +46,11 @@ export class EmailService {
     this.fromEmail =
       this.configService.get<string>('notification.sendgrid.fromEmail') ||
       'noreply@novafund.xyz';
-    sgMail.setApiKey(this.apiKey);
+    if (this.apiKey && typeof (sgMail as any).setApiKey === 'function') {
+      (sgMail as any).setApiKey(this.apiKey);
+    } else if (this.apiKey && sgMail && (sgMail as any).default && typeof (sgMail as any).default.setApiKey === 'function') {
+      (sgMail as any).default.setApiKey(this.apiKey);
+    }
   }
 
   private isValidEmail(email: string): boolean {

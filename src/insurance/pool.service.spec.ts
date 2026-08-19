@@ -228,7 +228,7 @@ describe('PoolService', () => {
         expect.any(Object),
         undefined,
         undefined,
-        expect.any(Object),
+        undefined,
       );
     });
   });

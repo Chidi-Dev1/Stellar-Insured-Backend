@@ -52,39 +52,52 @@ export class NonceService {
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {}
 
   /**
-   * Generate a new nonce, persist it to Redis, and return it.
-   * The nonce expires automatically after NONCE_TTL_MS.
+   * Generate a new nonce, optionally bound to a user ID.
+   * Alias for createNonce().
    */
-  async generateNonce(): Promise<string> {
+  async generateNonce(userId?: string): Promise<string> {
+    return this.createNonce(userId);
+  }
+
+  /**
+   * Create a new nonce, optionally bound to a specific user ID.
+   * Persists to Redis / Cache with NONCE_TTL_MS.
+   */
+  async createNonce(userId?: string): Promise<string> {
     const nonce = randomBytes(16).toString('hex');
     const key = this.buildKey(nonce);
+    const userBindingKey = this.buildUserKey(nonce);
 
-    // Store with TTL — value is the creation timestamp for audit purposes.
     await withResilience(
       this.redisBreaker,
-      () => this.cache.set(key, Date.now().toString(), this.NONCE_TTL_MS),
+      async () => {
+        await this.cache.set(key, Date.now().toString(), this.NONCE_TTL_MS);
+        if (userId) {
+          await this.cache.set(userBindingKey, userId, this.NONCE_TTL_MS);
+        }
+      },
       { retry: REDIS_NONCE_POLICY.retry },
     );
 
-    this.logger.debug(`Nonce generated: ${nonce}`);
+    this.logger.debug(`Nonce created${userId ? ` for user ${userId}` : ''}: ${nonce}`);
     return nonce;
   }
 
   /**
-   * Validate and consume a nonce.
-   *
-   * - Returns true and deletes the nonce if it exists and has not expired.
-   * - Throws BadRequestException if the nonce is unknown, already used, or expired.
-   *
-   * This is atomic enough for single-instance deployments; for distributed
-   * setups consider a Lua script or a Redis SET NX / DEL pipeline.
+   * Validate and consume a nonce (one-time use).
+   * Optionally verifies user binding if expectedUserId is supplied.
    */
-  async consumeNonce(nonce: string): Promise<boolean> {
+  async consumeNonce(
+    nonce: string,
+    expectedUserId?: string,
+  ): Promise<boolean> {
     if (!nonce || typeof nonce !== 'string') {
       throw new BadRequestException('Invalid nonce format.');
     }
 
     const key = this.buildKey(nonce);
+    const userBindingKey = this.buildUserKey(nonce);
+
     const stored = await withResilience(
       this.redisBreaker,
       () => this.cache.get<string>(key),
@@ -100,82 +113,20 @@ export class NonceService {
       );
     }
 
-    // Delete immediately so it cannot be replayed.
-    await withResilience(this.redisBreaker, () => this.cache.del(key), {
-      retry: REDIS_NONCE_POLICY.retry,
-    });
-
-    this.logger.debug(`Nonce consumed: ${nonce}`);
-    return true;
-  }
-
-  /**
-   * Create a nonce bound to a specific user ID (wallet address).
-   * The nonce is stored in Redis with both the nonce key and a user-binding key
-   * so that during wallet login, the nonce can be validated as belonging to that user.
-   */
-  async createNonce(userId: string): Promise<string> {
-    const nonce = randomBytes(16).toString('hex');
-    const key = this.buildKey(nonce);
-    const userBindingKey = this.buildUserKey(nonce);
-
-    // Store nonce with its creation timestamp (value) and bind it to the userId
-    await withResilience(
-      this.redisBreaker,
-      async () => {
-        await this.cache.set(key, Date.now().toString(), this.NONCE_TTL_MS);
-        await this.cache.set(userBindingKey, userId, this.NONCE_TTL_MS);
-      },
-      { retry: REDIS_NONCE_POLICY.retry },
-    );
-
-    this.logger.debug(`Nonce created for user ${userId}: ${nonce}`);
-    return nonce;
-  }
-
-  /**
-   * Consume a nonce and verify it belongs to the expected user.
-   * Used in the wallet login flow to prevent nonce reuse across different users.
-   */
-  async consumeNonceForUser(
-    nonce: string,
-    expectedUserId: string,
-  ): Promise<boolean> {
-    if (!nonce || typeof nonce !== 'string') {
-      throw new BadRequestException('Invalid nonce format.');
-    }
-
-    const key = this.buildKey(nonce);
-    const userBindingKey = this.buildUserKey(nonce);
-
-    const [stored, boundUserId] = await withResilience(
-      this.redisBreaker,
-      async () => {
-        const [s, u] = await Promise.all([
-          this.cache.get<string>(key),
-          this.cache.get<string>(userBindingKey),
-        ]);
-        return [s, u] as const;
-      },
-      { retry: REDIS_NONCE_POLICY.retry },
-    );
-
-    if (!stored) {
-      this.logger.warn(
-        `Nonce validation failed — unknown or expired: ${nonce}`,
+    if (expectedUserId) {
+      const boundUserId = await withResilience(
+        this.redisBreaker,
+        () => this.cache.get<string>(userBindingKey),
+        { retry: REDIS_NONCE_POLICY.retry },
       );
-      throw new BadRequestException(
-        'Nonce is invalid, expired, or has already been used.',
-      );
-    }
-
-    if (boundUserId !== expectedUserId) {
-      this.logger.warn(
-        `Nonce user binding mismatch — expected ${expectedUserId}, got ${boundUserId}`,
-      );
-      throw new BadRequestException(
-        'Nonce does not belong to the specified user.',
-      );
+      if (boundUserId && boundUserId !== expectedUserId) {
+        this.logger.warn(
+          `Nonce user binding mismatch — expected ${expectedUserId}, got ${boundUserId}`,
+        );
+        throw new BadRequestException(
+          'Nonce does not belong to the specified user.',
+        );
+      }
     }
 
     // Delete immediately so it cannot be replayed.
@@ -188,8 +139,18 @@ export class NonceService {
       { retry: REDIS_NONCE_POLICY.retry },
     );
 
-    this.logger.debug(`Nonce consumed for user ${expectedUserId}: ${nonce}`);
+    this.logger.debug(`Nonce consumed: ${nonce}`);
     return true;
+  }
+
+  /**
+   * Consume a nonce and verify it belongs to the expected user.
+   */
+  async consumeNonceForUser(
+    nonce: string,
+    expectedUserId: string,
+  ): Promise<boolean> {
+    return this.consumeNonce(nonce, expectedUserId);
   }
 
   /**
