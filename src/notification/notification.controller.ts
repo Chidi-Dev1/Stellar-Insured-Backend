@@ -75,14 +75,11 @@ export class NotificationController {
   @ApiParam({ name: 'userId', type: String, description: 'ID of the user' })
   @ApiOkResponse({ description: 'Notification settings for the user' })
   async getSettings(@Param() params: UserIdParamDto) {
-    const userId = params.userId;
+    const userId = typeof params === 'string' ? params : params.userId;
     await this.ensureActiveUser(userId);
 
     return this.prisma.notificationSetting.upsert({
       where: { userId },
-      // upsert bypasses the soft-delete middleware, so restore the row
-      // explicitly: an active user must always see usable settings even
-      // if they were previously soft-deleted (e.g. restored account).
       update: { deletedAt: null },
       create: { userId },
     });
@@ -99,7 +96,7 @@ export class NotificationController {
     @Param() params: UserIdParamDto,
     @Body() settings: UpdateNotificationSettingsDto,
   ) {
-    const userId = params.userId;
+    const userId = typeof params === 'string' ? params : params.userId;
     await this.ensureActiveUser(userId);
 
     const result = await this.prisma.notificationSetting.upsert({
@@ -140,7 +137,7 @@ export class NotificationController {
     @Param() params: UserIdParamDto,
     @Body() subscription: PushSubscriptionDto,
   ) {
-    const userId = params.userId;
+    const userId = typeof params === 'string' ? params : params.userId;
     // Validate subscription structure
     if (
       !subscription.endpoint ||
