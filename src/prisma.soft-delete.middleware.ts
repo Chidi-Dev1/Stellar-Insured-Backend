@@ -17,11 +17,13 @@ export const SOFT_DELETE_MODELS = [
   'AuditLog',
   'LedgerCursor',
   'ProcessedEvent',
+  'QuarantinedEvent',
   'IndexerLog',
   'NotificationSetting',
   'Notification',
   'EmailOutbox',
   'IdempotencyKey',
+  'RefreshToken',
 ] as const;
 
 export type SoftDeleteModel = (typeof SOFT_DELETE_MODELS)[number];
@@ -170,6 +172,43 @@ export function createSoftDeleteMiddleware(
       }
 
       removeIncludeDeletedFlags(args);
+    }
+
+    // Handle upsert operations — prevent soft-deleted records from being
+    // accidentally resurrected and ensure newly-created rows via upsert
+    // are never stamped with a deleted timestamp.
+    //
+    // Strategy:
+    //  - Inject `deletedAt: null` into the `create` branch so new rows
+    //    start as non-deleted (guards against callers omitting the field).
+    //  - Inject `deletedAt: null` into the `update` branch so an upsert
+    //    that matches a live row cannot accidentally re-stamp deletedAt
+    //    as null via an incomplete payload.
+    //
+    // Opt-out: if the caller already includes `deletedAt` in their payload
+    // (e.g. an intentional restore or explicit set), we leave it untouched.
+    if (action === 'upsert') {
+      const upsertArgs = args as unknown as {
+        where?: Record<string, unknown>;
+        create?: Record<string, unknown>;
+        update?: Record<string, unknown>;
+      };
+
+      // Ensure newly-created rows via upsert start as non-deleted.
+      if (upsertArgs.create && !('deletedAt' in upsertArgs.create)) {
+        upsertArgs.create = {
+          ...upsertArgs.create,
+          deletedAt: null,
+        };
+      }
+
+      // Ensure the update branch does not inadvertently set deletedAt.
+      if (upsertArgs.update && !('deletedAt' in upsertArgs.update)) {
+        upsertArgs.update = {
+          ...upsertArgs.update,
+          deletedAt: null,
+        };
+      }
     }
 
     return next(params);

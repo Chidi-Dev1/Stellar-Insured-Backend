@@ -183,4 +183,103 @@ describe('createSoftDeleteMiddleware', () => {
       expect(next.mock.calls[0][0].args.where).toEqual({ id: 'user-1' });
     });
   });
+
+  describe('upsert operations', () => {
+    it('injects deletedAt: null into the create branch so new rows are never soft-deleted', async () => {
+      const params = buildParams({
+        action: 'upsert' as any,
+        args: {
+          where: { walletAddress: 'GABC' },
+          create: { walletAddress: 'GABC', reputationScore: 0 },
+          update: {},
+        },
+      });
+
+      await middleware(params, next);
+
+      const forwarded = next.mock.calls[0][0];
+      expect(forwarded.args.create).toEqual({
+        walletAddress: 'GABC',
+        reputationScore: 0,
+        deletedAt: null,
+      });
+    });
+
+    it('injects deletedAt: null into the update branch to prevent accidental resurrection', async () => {
+      const params = buildParams({
+        action: 'upsert' as any,
+        args: {
+          where: { walletAddress: 'GABC' },
+          create: { walletAddress: 'GABC' },
+          update: { reputationScore: 10 },
+        },
+      });
+
+      await middleware(params, next);
+
+      const forwarded = next.mock.calls[0][0];
+      expect(forwarded.args.update).toEqual({
+        reputationScore: 10,
+        deletedAt: null,
+      });
+    });
+
+    it('does not overwrite an explicit deletedAt already in the create branch', async () => {
+      const params = buildParams({
+        action: 'upsert' as any,
+        args: {
+          where: { walletAddress: 'GABC' },
+          create: { walletAddress: 'GABC', deletedAt: null },
+          update: {},
+        },
+      });
+
+      await middleware(params, next);
+
+      const forwarded = next.mock.calls[0][0];
+      // deletedAt already present — must not be double-injected
+      const deletedAtKeys = Object.keys(forwarded.args.create).filter(
+        k => k === 'deletedAt',
+      );
+      expect(deletedAtKeys.length).toBe(1);
+    });
+
+    it('does not overwrite an intentional restore (deletedAt: null) in update branch', async () => {
+      const params = buildParams({
+        model: 'NotificationSetting' as MiddlewareParams['model'],
+        action: 'upsert' as any,
+        args: {
+          where: { userId: 'user-1' },
+          create: { userId: 'user-1' },
+          update: { deletedAt: null, emailEnabled: true },
+        },
+      });
+
+      await middleware(params, next);
+
+      const forwarded = next.mock.calls[0][0];
+      expect(forwarded.args.update).toEqual({
+        deletedAt: null,
+        emailEnabled: true,
+      });
+    });
+
+    it('passes upsert through untouched for models not in SOFT_DELETE_MODELS', async () => {
+      const params = buildParams({
+        model: 'SomethingElse' as MiddlewareParams['model'],
+        action: 'upsert' as any,
+        args: {
+          where: { id: '1' },
+          create: { id: '1' },
+          update: {},
+        },
+      });
+
+      await middleware(params, next);
+
+      const forwarded = next.mock.calls[0][0];
+      expect(forwarded.args.create).toEqual({ id: '1' });
+      expect(forwarded.args.update).toEqual({});
+    });
+  });
 });
