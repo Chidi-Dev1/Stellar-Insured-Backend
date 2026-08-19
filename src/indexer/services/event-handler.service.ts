@@ -79,8 +79,8 @@ class ProjectCreatedHandler implements IEventHandler {
         status: 'ACTIVE',
       },
     );
-    updateTracingContext({ entityId: project.id });
 
+    updateTracingContext({ entityId: project.id });
     this.logger.log(`Created/updated project ${data.projectId}`);
   }
 }
@@ -123,6 +123,7 @@ class ContributionMadeHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for contribution`);
       return;
     }
+
     updateTracingContext({ entityId: project.id });
 
     await this.contributionRepository.upsertByTxHash(event.transactionHash, {
@@ -146,8 +147,9 @@ class ContributionMadeHandler implements IEventHandler {
         { projectId: project.id, amount: data.amount },
       );
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
       this.logger.error(
-        `Failed to send contribution notification to user ${user.id}: ${e.message}`,
+        `Failed to send contribution notification to user ${user.id}: ${message}`,
       );
     }
 
@@ -158,8 +160,9 @@ class ContributionMadeHandler implements IEventHandler {
         `Contribution of ${data.amount} to project ${data.projectId} recorded on-chain`,
       );
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
       this.logger.error(
-        `Failed to adjust reputation for contribution by user ${user.id}: ${e.message}`,
+        `Failed to adjust reputation for contribution by user ${user.id}: ${message}`,
       );
     }
 
@@ -203,6 +206,7 @@ class MilestoneApprovedHandler implements IEventHandler {
       );
       return;
     }
+
     updateTracingContext({ entityId: project.id });
 
     await this.milestoneRepository.updateManyByProject(project.id, {
@@ -222,8 +226,9 @@ class MilestoneApprovedHandler implements IEventHandler {
           { projectId: project.id, milestoneId: data.milestoneId },
         );
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         this.logger.error(
-          `Failed to notify investor ${investorId} of milestone: ${e.message}`,
+          `Failed to notify investor ${investorId} of milestone: ${message}`,
         );
       }
     }
@@ -237,8 +242,9 @@ class MilestoneApprovedHandler implements IEventHandler {
           `Milestone ${data.milestoneId} approved for project ${data.projectId}`,
         );
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         this.logger.error(
-          `Failed to adjust reputation for milestone approval, creator ${project.creatorId}: ${e.message}`,
+          `Failed to adjust reputation for milestone approval, creator ${project.creatorId}: ${message}`,
         );
       }
     }
@@ -260,12 +266,12 @@ class MilestoneRejectedHandler implements IEventHandler {
   ) {}
 
   validate(event: ParsedContractEvent): boolean {
-    const data = event.data as any;
+    const data = event.data as unknown as MilestoneRejectedEvent;
     return !!(data.projectId !== undefined && data.milestoneId !== undefined);
   }
 
   async handle(event: ParsedContractEvent): Promise<void> {
-    const data = event.data as any;
+    const data = event.data as unknown as MilestoneRejectedEvent;
     this.logger.log(
       `Processing MILESTONE_REJECTED: Milestone ${data.milestoneId} for project ${data.projectId}`,
     );
@@ -279,6 +285,7 @@ class MilestoneRejectedHandler implements IEventHandler {
       );
       return;
     }
+
     updateTracingContext({ entityId: project.id });
 
     await this.milestoneRepository.updateManyByProject(project.id, {
@@ -298,8 +305,9 @@ class MilestoneRejectedHandler implements IEventHandler {
           { projectId: project.id, milestoneId: data.milestoneId },
         );
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         this.logger.error(
-          `Failed to notify investor ${investorId} of milestone: ${e.message}`,
+          `Failed to notify investor ${investorId} of milestone: ${message}`,
         );
       }
     }
@@ -313,8 +321,9 @@ class MilestoneRejectedHandler implements IEventHandler {
           `Milestone ${data.milestoneId} rejected for project ${data.projectId}`,
         );
       } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         this.logger.error(
-          `Failed to adjust reputation for milestone rejection, creator ${project.creatorId}: ${e.message}`,
+          `Failed to adjust reputation for milestone rejection, creator ${project.creatorId}: ${message}`,
         );
       }
     }
@@ -350,6 +359,7 @@ class FundsReleasedHandler implements IEventHandler {
       this.logger.warn(`Project ${data.projectId} not found for funds release`);
       return;
     }
+
     updateTracingContext({ entityId: project.id });
 
     await this.milestoneRepository.updateManyByProject(project.id, {
@@ -377,12 +387,12 @@ class ProjectCompletedHandler implements IEventHandler {
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
     this.logger.log(`Processing PROJECT_COMPLETED: Project ${data.projectId}`);
+
     await this.projectRepository.updateManyByContractId(
       data.projectId.toString(),
-      {
-        status: 'COMPLETED',
-      },
+      { status: 'COMPLETED' },
     );
+
     updateTracingContext({ entityId: data.projectId.toString() });
     this.logger.log(`Marked project ${data.projectId} as completed`);
   }
@@ -404,12 +414,12 @@ class ProjectFailedHandler implements IEventHandler {
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
     this.logger.log(`Processing PROJECT_FAILED: Project ${data.projectId}`);
+
     await this.projectRepository.updateManyByContractId(
       data.projectId.toString(),
-      {
-        status: 'CANCELLED',
-      },
+      { status: 'CANCELLED' },
     );
+
     updateTracingContext({ entityId: data.projectId.toString() });
     this.logger.log(`Marked project ${data.projectId} as failed/cancelled`);
   }
@@ -442,8 +452,8 @@ class DividendClaimedHandler implements IEventHandler {
       { walletAddress: data.claimer, reputationScore: 0 },
       {},
     );
-    updateTracingContext({ entityId: data.poolId, userId: user.id });
 
+    updateTracingContext({ entityId: data.poolId, userId: user.id });
     await this.reputationService.updateTrustScore(user.id);
     this.logger.log(`Updated trust score for claimer ${user.id}`);
   }
@@ -543,9 +553,11 @@ export class EventHandlerService implements IEventHandlerRegistry {
       await handler.handle(event);
       return true;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Error processing event ${event.eventType}: ${error.message}`,
-        error.stack,
+        `Error processing event ${event.eventType}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -554,4 +566,4 @@ export class EventHandlerService implements IEventHandlerRegistry {
   isSupported(eventType: string): boolean {
     return this.handlers.has(eventType);
   }
-}
+       }
