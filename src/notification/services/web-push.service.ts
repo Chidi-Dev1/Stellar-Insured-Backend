@@ -46,11 +46,15 @@ export class WebPushService {
       'admin@novafund.xyz';
 
     if (this.publicKey && privateKey) {
-      webpush.setVapidDetails(
-        `mailto:${subjectEmail}`,
-        this.publicKey,
-        privateKey,
-      );
+      try {
+        webpush.setVapidDetails(
+          `mailto:${subjectEmail}`,
+          this.publicKey,
+          privateKey,
+        );
+      } catch (err) {
+        this.logger.warn(`Failed to set VAPID details: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } else {
       this.logger.warn(
         'VAPID keys not set. Web push notifications will not work.',

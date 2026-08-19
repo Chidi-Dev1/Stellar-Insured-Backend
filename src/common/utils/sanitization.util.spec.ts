@@ -110,8 +110,8 @@ describe('sanitization.util', () => {
       };
       const result = sanitizeObject(input) as Record<string, unknown>;
       expect(result.safeKey).toBe('safe value');
-      expect(result.__proto__).toBeUndefined();
-      expect(result.constructor).toBeUndefined();
+      expect(Object.prototype.hasOwnProperty.call(result, '__proto__')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(result, 'constructor')).toBe(false);
     });
 
     it('should remove keys with dollar signs (NoSQL injection)', () => {

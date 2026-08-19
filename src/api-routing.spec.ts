@@ -1,6 +1,6 @@
 import { PATH_METADATA, VERSION_METADATA } from '@nestjs/common/constants';
 import { UserController } from './user/user.controller';
-import { InsuranceController } from '../insurance/insurance.controller';
+import { InsuranceController } from './insurance/insurance.controller';
 
 describe('API routing configuration', () => {
   it('keeps controller paths resource-scoped so the global api prefix is not duplicated', () => {

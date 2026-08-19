@@ -50,8 +50,7 @@ export function sanitizeString(value: string): string {
  */
 export function isValidCuid(id: string): boolean {
   if (typeof id !== 'string') return false;
-  // Accept both CUID v1 (c + 24 hex) and v2 (24+ alphanumeric)
-  return /^[a-z][a-z0-9]{7,31}$/i.test(id);
+  return /^[a-z0-9_-]{3,64}$/i.test(id);
 }
 
 /**

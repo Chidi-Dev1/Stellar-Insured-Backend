@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 import { AuthService } from '../src/auth/auth.service';
@@ -22,6 +22,12 @@ describe('Auth (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
     );
@@ -52,7 +58,7 @@ describe('Auth (e2e)', () => {
       const nonce = await nonceService.createNonce(userId);
 
       const response = await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce })
         .expect(201);
 
@@ -64,7 +70,7 @@ describe('Auth (e2e)', () => {
 
     it('should reject login with an invalid nonce', async () => {
       await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce: 'invalid-nonce-value' })
         .expect(400);
     });
@@ -76,7 +82,7 @@ describe('Auth (e2e)', () => {
       const nonce = await nonceService.createNonce(otherUser.id);
 
       await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce })
         .expect(400);
 
@@ -87,12 +93,12 @@ describe('Auth (e2e)', () => {
       const nonce = await nonceService.createNonce(userId);
 
       await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce })
         .expect(201);
 
       await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce })
         .expect(400);
     });
@@ -106,7 +112,7 @@ describe('Auth (e2e)', () => {
     beforeEach(async () => {
       const nonce = await nonceService.createNonce(userId);
       const loginResponse = await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce })
         .expect(201);
 
@@ -115,7 +121,7 @@ describe('Auth (e2e)', () => {
 
     it('should rotate tokens on valid refresh', async () => {
       const response = await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: refreshToken })
         .expect(201);
 
@@ -126,14 +132,14 @@ describe('Auth (e2e)', () => {
 
     it('should reject refresh with an invalid token', async () => {
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: 'totally-invalid-token' })
         .expect(401);
     });
 
     it('should detect token reuse and revoke the entire family', async () => {
       const firstRefresh = await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: refreshToken })
 
         .expect(201);
@@ -141,32 +147,32 @@ describe('Auth (e2e)', () => {
       const newRefreshToken = firstRefresh.body.refresh_token;
 
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: newRefreshToken })
         .expect(201);
 
       // Replay the OLD token
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: refreshToken })
         .expect(401);
 
       // The token from step 1 should also be revoked (family revocation)
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: newRefreshToken })
         .expect(401);
     });
 
     it('should reject refresh after logout revokes the token', async () => {
       await request(app.getHttpServer())
-        .post('/v1/auth/logout')
+        .post('/api/v1/auth/logout')
         .send({ refresh_token: refreshToken })
         .set('Authorization', 'Bearer ' + (await getAccessToken()))
         .expect(200);
 
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: refreshToken })
         .expect(401);
     });
@@ -178,7 +184,7 @@ describe('Auth (e2e)', () => {
     it('should revoke a specific refresh token', async () => {
       const nonce = await nonceService.createNonce(userId);
       const loginResponse = await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce })
         .expect(201);
 
@@ -186,7 +192,7 @@ describe('Auth (e2e)', () => {
       const rt = loginResponse.body.refresh_token;
 
       const logoutResponse = await request(app.getHttpServer())
-        .post('/v1/auth/logout')
+        .post('/api/v1/auth/logout')
         .send({ refresh_token: rt })
         .set('Authorization', 'Bearer ' + accessToken)
         .expect(200);
@@ -194,7 +200,7 @@ describe('Auth (e2e)', () => {
       expect(logoutResponse.body.revoked).toBe(1);
 
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: rt })
         .expect(401);
     });
@@ -202,13 +208,13 @@ describe('Auth (e2e)', () => {
     it('should revoke all refresh tokens for a user on full logout', async () => {
       const nonce1 = await nonceService.createNonce(userId);
       const login1 = await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce: nonce1 })
         .expect(201);
 
       const nonce2 = await nonceService.createNonce(userId);
       const login2 = await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce: nonce2 })
         .expect(201);
 
@@ -216,7 +222,7 @@ describe('Auth (e2e)', () => {
       const refreshToken2 = login2.body.refresh_token;
 
       const logoutResponse = await request(app.getHttpServer())
-        .post('/v1/auth/logout')
+        .post('/api/v1/auth/logout')
         .send({})
         .set('Authorization', 'Bearer ' + accessToken1)
         .expect(200);
@@ -224,12 +230,12 @@ describe('Auth (e2e)', () => {
       expect(logoutResponse.body.revoked).toBeGreaterThanOrEqual(2);
 
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: login1.body.refresh_token })
         .expect(401);
 
       await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: refreshToken2 })
         .expect(401);
     });
@@ -243,10 +249,10 @@ describe('Auth (e2e)', () => {
 
       const [res1, res2] = await Promise.all([
         request(app.getHttpServer())
-          .post('/v1/auth/wallet-login')
+          .post('/api/v1/auth/wallet-login')
           .send({ userId, nonce }),
         request(app.getHttpServer())
-          .post('/v1/auth/wallet-login')
+          .post('/api/v1/auth/wallet-login')
           .send({ userId, nonce }),
       ]);
 
@@ -261,14 +267,14 @@ describe('Auth (e2e)', () => {
     it('should leave DB consistent after token rotation', async () => {
       const nonce = await nonceService.createNonce(userId);
       const loginResponse = await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce })
         .expect(201);
 
       const refreshToken = loginResponse.body.refresh_token;
 
       const refreshResponse = await request(app.getHttpServer())
-        .post('/v1/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ refresh_token: refreshToken })
         .expect(201);
 
@@ -297,7 +303,7 @@ describe('Auth (e2e)', () => {
       });
 
       await request(app.getHttpServer())
-        .post('/v1/auth/wallet-login')
+        .post('/api/v1/auth/wallet-login')
         .send({ userId, nonce: 'invalid-nonce' })
         .expect(400);
 
@@ -314,7 +320,7 @@ describe('Auth (e2e)', () => {
   async function getAccessToken(): Promise<string> {
     const nonce = await nonceService.createNonce(userId);
     const response = await request(app.getHttpServer())
-      .post('/v1/auth/wallet-login')
+      .post('/api/v1/auth/wallet-login')
       .send({ userId, nonce })
       .expect(201);
     return response.body.access_token;
