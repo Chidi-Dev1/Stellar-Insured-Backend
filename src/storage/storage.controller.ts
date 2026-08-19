@@ -136,7 +136,8 @@ export class StorageController {
   async deleteObject(
     @Param() params: StorageKeyDto,
   ): Promise<{ deleted: boolean }> {
-    await this.storageService.deleteObject(params.key);
+    const key = typeof params === 'string' ? params : params.key;
+    await this.storageService.deleteObject(key);
     return { deleted: true };
   }
 }

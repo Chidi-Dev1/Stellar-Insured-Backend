@@ -566,4 +566,4 @@ export class EventHandlerService implements IEventHandlerRegistry {
   isSupported(eventType: string): boolean {
     return this.handlers.has(eventType);
   }
-       }
+}
