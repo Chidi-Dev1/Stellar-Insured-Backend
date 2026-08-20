@@ -25,6 +25,41 @@ import {
 } from '../notification/services/notification.service';
 import { NotificationType } from '../notification/enums/notification-type.enum';
 
+/**
+ * ## Deletion / lifecycle semantics
+ *
+ * `ClaimService` never issues direct `prisma.delete()` or `prisma.update()`
+ * calls that could bypass the soft-delete middleware.  All mutations go
+ * through `ClaimRepository`, which extends `SoftDeleteRepository`.
+ *
+ * - **Status transitions** (PENDING → APPROVED / REJECTED / PAID) →
+ *   `claimRepository.updateStatusWithPolicy()`.  The claim row stays live
+ *   so that reports and audit trails can reference it.
+ * - **Soft-delete** (remove a claim from standard query results) →
+ *   `claimRepository.delete(id)`.  The middleware converts this to
+ *   `UPDATE … SET deleted_at = NOW()`.
+ * - **Hard delete (purge)** → only via `SoftDeleteService.hardDelete()` on
+ *   approved GDPR / admin paths.
+ *
+ * ### Direct `tx.insurancePolicy.findUnique()` in `createClaim`
+ *
+ * The single direct Prisma access in this service is a **read-only lookup**
+ * inside `createClaim()`.  It retrieves the policy's `userId` to prepare
+ * the notification row inside the same transaction.  This is intentional:
+ *   - It is not a delete or update, so the soft-delete semantics are
+ *     irrelevant (the middleware still applies the `deletedAt IS NULL` filter
+ *     so a soft-deleted policy will correctly cause a lookup miss).
+ *   - It uses the transaction client (`tx`) so the lookup participates in
+ *     the same atomic write boundary as the `createClaim` call.
+ *   - Moving this into a repository method would require an additional
+ *     `InsurancePolicyRepository` dependency on `ClaimService`, which would
+ *     be a cross-aggregate dependency for a single field select.
+ *
+ * If the `ClaimRepository` is extended with a `findPolicyUserId(policyId, tx)`
+ * method in the future, the direct call below should be removed.
+ *
+ * See SOFT_DELETE_GUIDE.md for the full lifecycle state machine.
+ */
 @Injectable()
 export class ClaimService {
   private readonly logger = new Logger(ClaimService.name);
@@ -359,6 +394,11 @@ export class ClaimService {
     let createdNotification: PreparedNotification | null = null;
 
     const created = await this.prisma.$transaction(async tx => {
+      // Direct read-only lookup via the transaction client.
+      // This is the only direct Prisma access in ClaimService and is
+      // intentional — see the class-level JSDoc for the rationale.
+      // The soft-delete middleware still applies: a soft-deleted policy will
+      // not be found and will correctly trigger the BadRequestException below.
       const policy = await tx.insurancePolicy.findUnique({
         where: { id: policyId },
         select: { id: true, userId: true },

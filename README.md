@@ -28,6 +28,19 @@ Insurance is the primary product domain for this service.
 
 The Prisma schema includes insurance models for pools, policies, claims, reinsurance contracts, and audit logs. Legacy project/contribution models remain in place because the Stellar event indexer, reputation scoring, and notification flows still depend on them while the broader data layer is being consolidated.
 
+## 🗑️ Soft-Delete Policy
+
+All 20 tracked models use **soft-delete by default**: deleting a record stamps
+`deletedAt` with the current timestamp rather than issuing a SQL `DELETE`. The
+Prisma middleware (`createSoftDeleteMiddleware`) enforces this transparently —
+every standard `findMany`, `findUnique`, `update`, and `delete` call is already
+covered. Hard deletes (permanent removal) are restricted to `SoftDeleteService`
+and explicitly approved GDPR/admin paths, and always write an `AuditLog` entry.
+
+For the full lifecycle model, query conventions, repository patterns, restore
+vs. purge rules, and instructions for adding a new model, see
+**[SOFT_DELETE_GUIDE.md](SOFT_DELETE_GUIDE.md)**.
+
 ## 🏗️ Database Architecture
 
 **Prisma is the single source of truth** for all database access across this application:

@@ -15,6 +15,26 @@ import {
 } from '../notification/services/notification.service';
 import { NotificationType } from '../notification/enums/notification-type.enum';
 
+/**
+ * ## Deletion / lifecycle semantics
+ *
+ * `InsuranceService` never issues direct `prisma.delete()` or
+ * `prisma.update()` calls for record removal.  All mutations go through
+ * `InsurancePolicyRepository`, which extends `SoftDeleteRepository`.
+ *
+ * - **Cancellation / expiry** → `policyRepository.updateStatus()` sets the
+ *   `status` column.  The policy row remains live in the database (visible to
+ *   standard queries) so that historical reads and audit trails work correctly.
+ * - **Soft-delete** (when a policy must be hidden from standard queries) →
+ *   call `policyRepository.delete(id)`.  The soft-delete middleware converts
+ *   this to `UPDATE … SET deleted_at = NOW()`.
+ * - **Hard delete (purge)** → only via `SoftDeleteService.hardDelete()` for
+ *   explicitly approved paths (GDPR erasure, admin purge).  Never call
+ *   `policyRepository.delete()` with a `hardDelete` flag outside
+ *   `SoftDeleteService`.
+ *
+ * See SOFT_DELETE_GUIDE.md for the full lifecycle state machine.
+ */
 @Injectable()
 export class InsuranceService {
   private readonly logger = new Logger(InsuranceService.name);

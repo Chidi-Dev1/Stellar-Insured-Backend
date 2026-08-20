@@ -5,9 +5,14 @@ import type { SoftDeleteModel } from './prisma.soft-delete.middleware';
 
 type SoftDeleteDelegateName = Uncapitalize<SoftDeleteModel>;
 
-/** Generic Prisma query options shape used by soft-delete helpers. */
+/**
+ * Generic Prisma query options shape used by soft-delete helpers.
+ * The `includeDeleted` field is consumed by this service and stripped
+ * before the query reaches the database.
+ */
 interface QueryOptions {
   where?: Record<string, unknown>;
+  /** @deprecated Pass `_includeDeleted: true` inside `where` instead. */
   includeDeleted?: boolean;
   [key: string]: unknown;
 }
@@ -35,12 +40,33 @@ interface SoftDeleteDelegate {
 }
 
 /**
- * Service providing utility methods for soft delete operations
- * Use this service when you need to:
- * - Permanently delete records (hard delete)
- * - Restore soft-deleted records
- * - Query both deleted and non-deleted records
- * - Force include deleted records in specific queries
+ * Service providing utility methods for soft-delete, restore, and purge
+ * operations across all soft-deletable models.
+ *
+ * ## When to use this service
+ *
+ * | Scenario | Method |
+ * |---|---|
+ * | Permanent (hard) delete of one record | `hardDelete()` |
+ * | Permanent (hard) delete of many records | `hardDeleteMany()` |
+ * | Restore a soft-deleted record | `restore()` / `restoreMany()` |
+ * | Query including deleted records | `findIncludingDeleted()` / `findManyIncludingDeleted()` |
+ * | Query only deleted records | `findManyDeleted()` |
+ * | Count deleted records | `countDeleted()` |
+ * | Retention-based cleanup | `permanentlyDeleteExpired()` |
+ * | Check if a record is deleted | `isDeleted()` |
+ *
+ * Normal application code (outside GDPR/admin/retention flows) should use
+ * repository methods (`SoftDeleteRepository`) and rely on the middleware to
+ * transparently soft-delete records.
+ *
+ * ## Audit trail
+ *
+ * Every hard-delete (purge) operation writes a best-effort `AuditLog` entry
+ * with `action: AuditAction.DELETE`.  A failed audit write is logged as an
+ * error but does NOT fail the purge — the purge has already committed.
+ *
+ * See also: SOFT_DELETE_GUIDE.md §6, §8, §9
  */
 @Injectable()
 export class SoftDeleteService {
@@ -48,14 +74,21 @@ export class SoftDeleteService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  // ── Purge (hard delete) ─────────────────────────────────────────────────────
+
   /**
-   * Permanently delete a record (hard delete)
-   * WARNING: This permanently removes data from the database
-   * Use only when absolutely necessary (e.g., GDPR right to be forgotten)
+   * Permanently delete a single record from the database (hard delete).
    *
-   * @param model - The model name
-   * @param where - Filter conditions
-   * @param reason - Audit reason for permanent deletion
+   * ⚠️ This is irreversible.  Use only for:
+   *   - GDPR right-to-erasure
+   *   - Approved admin / retention flows
+   *
+   * Always supply a `reason` — it is written to the `AuditLog` and is
+   * critical for incident response.
+   *
+   * Internally passes `hardDelete: true` to the soft-delete middleware so
+   * the operation is forwarded as a real SQL DELETE rather than being
+   * converted to a soft-delete UPDATE.
    */
   async hardDelete<T>(
     model: SoftDeleteDelegateName,
@@ -63,11 +96,11 @@ export class SoftDeleteService {
     reason?: string,
   ): Promise<T | null> {
     this.logger.warn(
-      `Hard deleting ${model as string} with where: ${JSON.stringify(where)}. Reason: ${reason || 'Not provided'}`,
+      `Hard deleting ${model as string} with where: ${JSON.stringify(where)}. Reason: ${reason ?? 'Not provided'}`,
     );
 
-    // hardDelete: true opts out of the middleware's delete -> soft-delete
-    // conversion; without it this purge would silently become a soft delete.
+    // `hardDelete: true` opts out of the middleware's delete → soft-delete
+    // conversion.  Without it this call would silently become a soft delete.
     const result = await this.getDelegate(model).delete<T>({
       where,
       hardDelete: true,
@@ -79,12 +112,9 @@ export class SoftDeleteService {
   }
 
   /**
-   * Permanently delete multiple records (hard delete)
-   * WARNING: This permanently removes data from the database
+   * Permanently delete multiple records from the database (hard delete).
    *
-   * @param model - The model name
-   * @param where - Filter conditions
-   * @param reason - Audit reason for permanent deletion
+   * ⚠️ This is irreversible.  Always supply a `reason`.
    */
   async hardDeleteMany(
     model: SoftDeleteDelegateName,
@@ -92,7 +122,7 @@ export class SoftDeleteService {
     reason?: string,
   ): Promise<{ count: number }> {
     this.logger.warn(
-      `Hard deleting ${model as string} records. Reason: ${reason || 'Not provided'}`,
+      `Hard deleting ${model as string} records with where: ${JSON.stringify(where)}. Reason: ${reason ?? 'Not provided'}`,
     );
 
     const result = await this.getDelegate(model).deleteMany({
@@ -105,37 +135,44 @@ export class SoftDeleteService {
     return result;
   }
 
+  // ── Restore ─────────────────────────────────────────────────────────────────
+
   /**
-   * Restore a soft-deleted record
+   * Restore a single soft-deleted record by clearing `deletedAt`.
    *
-   * @param model - The model name
-   * @param where - Filter conditions
-   * @returns The restored record
+   * The underlying `update` call sets `data.deletedAt = null`, which the
+   * middleware recognises as a restore and skips the `deletedAt IS NULL`
+   * filter on `where` — allowing the deleted row to be reached.
    */
   async restore<T>(
     model: SoftDeleteDelegateName,
     where: Record<string, unknown>,
   ): Promise<T> {
-    this.logger.log(`Restoring ${model as string} record`);
+    this.logger.log(
+      `Restoring ${model as string} record: ${JSON.stringify(where)}`,
+    );
 
     return this.getDelegate(model).update<T>({
       where,
+      // data.deletedAt === null signals the middleware that this is a
+      // restore, causing it to bypass the deletedAt: null filter on `where`.
       data: { deletedAt: null },
     });
   }
 
   /**
-   * Restore multiple soft-deleted records
+   * Restore multiple soft-deleted records by clearing `deletedAt`.
    *
-   * @param model - The model name
-   * @param where - Filter conditions
-   * @returns Count of restored records
+   * Uses `updateMany` which also triggers the middleware restore path when
+   * `data.deletedAt === null`.
    */
-  async restoreMany<T>(
+  async restoreMany(
     model: SoftDeleteDelegateName,
     where: Record<string, unknown>,
   ): Promise<{ count: number }> {
-    this.logger.log(`Restoring multiple ${model as string} records`);
+    this.logger.log(
+      `Restoring multiple ${model as string} records: ${JSON.stringify(where)}`,
+    );
 
     return this.getDelegate(model).updateMany({
       where,
@@ -143,49 +180,58 @@ export class SoftDeleteService {
     });
   }
 
+  // ── Queries including / targeting deleted records ──────────────────────────
+
   /**
-   * Get a record including soft-deleted ones
+   * Find a single record regardless of its `deletedAt` status.
    *
-   * @param model - The model name
-   * @param where - Filter conditions
-   * @returns The record or null
+   * Injects `_includeDeleted: true` into `where`, which the middleware
+   * recognises and strips before the query reaches the database.
    */
   async findIncludingDeleted<T>(
     model: SoftDeleteDelegateName,
     where: Record<string, unknown>,
   ): Promise<T | null> {
     return this.getDelegate(model).findUnique<T>({
-      where,
-      ...{ includeDeleted: true },
-    });
-  }
-
-  /**
-   * Get multiple records including soft-deleted ones
-   *
-   * @param model - The model name
-   * @param options - Query options
-   * @returns Array of records
-   */
-  async findManyIncludingDeleted<T>(
-    model: SoftDeleteDelegateName,
-    options: QueryOptions = {},
-  ): Promise<T[]> {
-    return this.getDelegate(model).findMany<T>({
-      ...options,
       where: {
-        ...options.where,
-        ...(options.includeDeleted && { _includeDeleted: true }),
+        ...where,
+        _includeDeleted: true,
       },
     });
   }
 
   /**
-   * Get only soft-deleted records
+   * Find multiple records regardless of their `deletedAt` status.
    *
-   * @param model - The model name
-   * @param options - Query options
-   * @returns Array of deleted records
+   * Always injects `_includeDeleted: true` into `where` so the middleware
+   * skips the default `deletedAt IS NULL` filter.  Any `includeDeleted`
+   * property on `options` is accepted for backwards compatibility but is
+   * redundant — this method always includes deleted records.
+   */
+  async findManyIncludingDeleted<T>(
+    model: SoftDeleteDelegateName,
+    options: QueryOptions = {},
+  ): Promise<T[]> {
+    // Always inject _includeDeleted regardless of whether options.includeDeleted
+    // was set.  This is the authoritative "include deleted" query path —
+    // callers should not need to think about the flag.
+    const { includeDeleted: _unused, ...restOptions } = options;
+    void _unused; // consumed; not forwarded to Prisma
+
+    return this.getDelegate(model).findMany<T>({
+      ...restOptions,
+      where: {
+        ...restOptions.where,
+        _includeDeleted: true,
+      },
+    });
+  }
+
+  /**
+   * Find records that have been soft-deleted (`deletedAt IS NOT NULL`).
+   *
+   * This is the primary method for admin/audit views that need to enumerate
+   * what has been deleted without including live records.
    */
   async findManyDeleted<T>(
     model: SoftDeleteDelegateName,
@@ -201,11 +247,9 @@ export class SoftDeleteService {
   }
 
   /**
-   * Count soft-deleted records
+   * Count soft-deleted records matching the given `where` clause.
    *
-   * @param model - The model name
-   * @param where - Filter conditions
-   * @returns Count of deleted records
+   * Useful for admin dashboards and retention reporting.
    */
   async countDeleted(
     model: SoftDeleteDelegateName,
@@ -219,20 +263,29 @@ export class SoftDeleteService {
     });
   }
 
+  // ── Retention cleanup ───────────────────────────────────────────────────────
+
   /**
-   * Permanently delete expired soft-deleted records (cleanup)
-   * Records older than the specified time are permanently deleted
+   * Permanently delete soft-deleted records older than `deletedBefore`.
    *
-   * @param model - The model name
-   * @param deletedBefore - Date before which to delete
-   * @returns Count of permanently deleted records
+   * This is the canonical retention-cleanup path.  It:
+   *   1. Issues a `deleteMany` with `hardDelete: true` (bypasses middleware
+   *      conversion so rows are truly removed from the database).
+   *   2. Writes a best-effort `AuditLog` entry with the cleanup reason.
+   *
+   * Schedule this via a NestJS `@Cron()` job or an admin endpoint protected
+   * by appropriate role guards.
+   *
+   * @param model         - The model to purge (e.g. `'refreshToken'`)
+   * @param deletedBefore - Only purge rows soft-deleted before this date
+   * @returns             - Number of rows permanently deleted
    */
   async permanentlyDeleteExpired(
     model: SoftDeleteDelegateName,
     deletedBefore: Date,
   ): Promise<number> {
     this.logger.log(
-      `Permanently deleting ${model as string} records deleted before ${deletedBefore.toISOString()}`,
+      `Permanently deleting ${model as string} records soft-deleted before ${deletedBefore.toISOString()}`,
     );
 
     const where = {
@@ -250,19 +303,20 @@ export class SoftDeleteService {
     await this.recordPurgeAudit(
       model,
       where,
-      `Retention cleanup of records soft-deleted before ${deletedBefore.toISOString()}`,
+      `Retention cleanup — soft-deleted before ${deletedBefore.toISOString()}`,
       result.count,
     );
 
     return result.count;
   }
 
+  // ── Utility ─────────────────────────────────────────────────────────────────
+
   /**
-   * Check if a record is soft-deleted
+   * Returns `true` if the record exists in the database and has been
+   * soft-deleted (`deletedAt IS NOT NULL`).
    *
-   * @param model - The model name
-   * @param where - Filter conditions
-   * @returns True if record exists and is deleted, false otherwise
+   * Returns `false` if the record does not exist or is still live.
    */
   async isDeleted(
     model: SoftDeleteDelegateName,
@@ -271,20 +325,27 @@ export class SoftDeleteService {
     const record = await this.getDelegate(model).findUnique<{
       deletedAt?: Date | null;
     }>({
-      where,
-      ...{ includeDeleted: true },
+      where: {
+        ...where,
+        _includeDeleted: true,
+      },
     });
 
     return record?.deletedAt !== null && record?.deletedAt !== undefined;
   }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
 
   private getDelegate(model: SoftDeleteDelegateName): SoftDeleteDelegate {
     return this.prisma[model] as unknown as SoftDeleteDelegate;
   }
 
   /**
-   * Record an audit trail entry for a permanent deletion.
-   * Best-effort: a failed audit write is logged but does not fail the purge.
+   * Write an `AuditLog` entry for a permanent (hard) deletion.
+   *
+   * Best-effort: a failure here is logged as an error but does NOT roll back
+   * or fail the purge.  The purge has already been committed by the time this
+   * runs.
    */
   private async recordPurgeAudit(
     model: SoftDeleteDelegateName,
@@ -301,7 +362,7 @@ export class SoftDeleteService {
           beforeState: JSON.parse(
             JSON.stringify({ where, ...(count !== undefined && { count }) }),
           ) as Prisma.InputJsonValue,
-          reason: reason || 'Hard delete (no reason provided)',
+          reason: reason ?? 'Hard delete (no reason provided)',
         },
       });
     } catch (error) {
