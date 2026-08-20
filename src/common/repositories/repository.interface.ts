@@ -8,32 +8,46 @@ import { Prisma } from '@prisma/client';
 export type TransactionClient = Prisma.TransactionClient;
 
 /**
- * Generic read/write repository interface.
- * T  = the Prisma model type (e.g. User, InsurancePolicy)
+ * Generic read/write repository interface with full Prisma type safety.
+ * T = the Prisma model type (e.g. User, InsurancePolicy)
+ * CreateInput = the model's create input type
+ * UpdateInput = the model's update input type
  * ID = the primary-key type (defaults to string)
  */
-export interface IRepository<T, ID = string> {
+export interface IRepository<
+  T,
+  CreateInput extends Record<string, unknown>,
+  UpdateInput extends Record<string, unknown>,
+  ID = string
+> {
   findById(id: ID, tx?: TransactionClient): Promise<T | null>;
   findMany(
-    args?: Record<string, unknown>,
+    args?: Prisma.Args<any, 'findMany'>,
     tx?: TransactionClient,
   ): Promise<T[]>;
-  create(data: Record<string, unknown>, tx?: TransactionClient): Promise<T>;
+  create(data: CreateInput, tx?: TransactionClient): Promise<T>;
   update(
     id: ID,
-    data: Record<string, unknown>,
+    data: UpdateInput,
     tx?: TransactionClient,
   ): Promise<T>;
   delete(id: ID, tx?: TransactionClient): Promise<T>;
+  /**
+   * Execute operations in a transaction
+   */
+  transaction<R>(fn: (tx: TransactionClient) => Promise<R>): Promise<R>;
 }
 
 /**
  * Extends IRepository with soft-delete helpers.
  */
-export interface ISoftDeleteRepository<T, ID = string> extends IRepository<
+export interface ISoftDeleteRepository<
   T,
-  ID
-> {
+  CreateInput extends Record<string, unknown>,
+  UpdateInput extends Record<string, unknown>,
+  ID = string
+> extends IRepository<T, CreateInput, UpdateInput, ID> {
   softDelete(id: ID, tx?: TransactionClient): Promise<T>;
   restore(id: ID, tx?: TransactionClient): Promise<T>;
+  softDeleteMany(where: Record<string, unknown>, tx?: TransactionClient): Promise<number>;
 }
