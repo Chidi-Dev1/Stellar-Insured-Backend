@@ -7,7 +7,11 @@ import { TransactionClient } from '../repositories/repository.interface';
 // ─── ProjectRepository ───────────────────────────────────────────────────────
 
 @Injectable()
-export class ProjectRepository extends SoftDeleteRepository<Project> {
+export class ProjectRepository extends SoftDeleteRepository<
+  Project,
+  Prisma.ProjectUncheckedCreateInput,
+  Prisma.ProjectUncheckedUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'project');
   }
@@ -71,7 +75,11 @@ export class ProjectRepository extends SoftDeleteRepository<Project> {
 // ─── ContributionRepository ──────────────────────────────────────────────────
 
 @Injectable()
-export class ContributionRepository extends SoftDeleteRepository<Contribution> {
+export class ContributionRepository extends SoftDeleteRepository<
+  Contribution,
+  Prisma.ContributionUncheckedCreateInput,
+  Prisma.ContributionUncheckedUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'contribution');
   }
@@ -103,7 +111,11 @@ export class ContributionRepository extends SoftDeleteRepository<Contribution> {
 // ─── MilestoneRepository ─────────────────────────────────────────────────────
 
 @Injectable()
-export class MilestoneRepository extends SoftDeleteRepository<Milestone> {
+export class MilestoneRepository extends SoftDeleteRepository<
+  Milestone,
+  Prisma.MilestoneUncheckedCreateInput,
+  Prisma.MilestoneUncheckedUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'milestone');
   }
