@@ -54,31 +54,36 @@ class ProjectCreatedHandler implements IEventHandler {
       `Processing PROJECT_CREATED: Project ${data.projectId} by ${data.creator}`,
     );
 
-    const user = await this.userRepository.upsertByWallet(
-      data.creator,
-      { walletAddress: data.creator, reputationScore: 0 },
-      {},
-    );
+    // Execute all database operations atomically in a transaction
+    const project = await this.projectRepository.transaction(async (tx) => {
+      const user = await this.userRepository.upsertByWallet(
+        data.creator,
+        { walletAddress: data.creator, reputationScore: 0 },
+        {},
+        tx
+      );
 
-    const project = await this.projectRepository.upsertByContractId(
-      data.projectId.toString(),
-      {
-        contractId: data.projectId.toString(),
-        creatorId: user.id,
-        title: `Project ${data.projectId}`,
-        category: 'uncategorized',
-        goal: BigInt(data.fundingGoal),
-        deadline: new Date(data.deadline * 1000),
-        status: 'ACTIVE',
-      },
-      {
-        title: `Project ${data.projectId}`,
-        category: 'uncategorized',
-        goal: BigInt(data.fundingGoal),
-        deadline: new Date(data.deadline * 1000),
-        status: 'ACTIVE',
-      },
-    );
+      return await this.projectRepository.upsertByContractId(
+        data.projectId.toString(),
+        {
+          contractId: data.projectId.toString(),
+          creatorId: user.id,
+          title: `Project ${data.projectId}`,
+          category: 'uncategorized',
+          goal: BigInt(data.fundingGoal),
+          deadline: new Date(data.deadline * 1000),
+          status: 'ACTIVE',
+        },
+        {
+          title: `Project ${data.projectId}`,
+          category: 'uncategorized',
+          goal: BigInt(data.fundingGoal),
+          deadline: new Date(data.deadline * 1000),
+          status: 'ACTIVE',
+        },
+        tx
+      );
+    });
 
     updateTracingContext({ entityId: project.id });
     this.logger.log(`Created/updated project ${data.projectId}`);
