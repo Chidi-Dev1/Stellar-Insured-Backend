@@ -15,7 +15,11 @@ export type UserWithSettings = User & {
 };
 
 @Injectable()
-export class UserRepository extends SoftDeleteRepository<User> {
+export class UserRepository extends SoftDeleteRepository<
+  User,
+  Prisma.UserCreateInput,
+  Prisma.UserUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'user');
   }
