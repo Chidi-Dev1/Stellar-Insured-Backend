@@ -24,6 +24,8 @@ import { PurchasePolicyDto } from './dto/purchase-policy.dto';
 import { CreateClaimDto } from './dto/create-claim.dto';
 import { CreateReinsuranceDto } from './dto/create-reinsurance.dto';
 import { ClaimIdDto } from '../common/dto/claim-id.dto';
+import { PolicyIdDto } from '../common/dto/policy-id.dto';
+import { ContractIdDto } from '../common/dto/contract-id.dto';
 import { IdempotencyInterceptor } from '../interceptors/idempotency.interceptor';
 import { SerializationTransformer } from '../common/utils/serialization.util';
 
@@ -77,9 +79,8 @@ export class InsuranceController {
   @ApiOperation({ summary: 'Assess an open insurance claim' })
   @ApiParam({ name: 'claimId', description: 'ID of the claim to assess' })
   @ApiOkResponse({ description: 'Claim assessed' })
-  async assessClaim(@Param() params: ClaimIdDto | string) {
-    const claimId = typeof params === 'string' ? params : params.claimId;
-    const claim = await this.claims.assessClaim(claimId);
+  async assessClaim(@Param() params: ClaimIdDto) {
+    const claim = await this.claims.assessClaim(params.claimId);
     return SerializationTransformer.transform(claim);
   }
 
@@ -91,9 +92,8 @@ export class InsuranceController {
   @ApiOperation({ summary: 'Execute payout for an approved claim' })
   @ApiParam({ name: 'claimId', description: 'ID of the claim to pay out' })
   @ApiOkResponse({ description: 'Claim payout completed' })
-  async payClaim(@Param() params: ClaimIdDto | string) {
-    const claimId = typeof params === 'string' ? params : params.claimId;
-    const claim = await this.claims.payClaim(claimId);
+  async payClaim(@Param() params: ClaimIdDto) {
+    const claim = await this.claims.payClaim(params.claimId);
     return SerializationTransformer.transform(claim);
   }
 
@@ -124,8 +124,8 @@ export class InsuranceController {
     description: 'ID of the contract to release',
   })
   @ApiOkResponse({ description: 'Contract released' })
-  async releaseReinsurance(@Param('contractId') contractId: string) {
-    const contract = await this.reinsurance.releaseContract(contractId);
+  async releaseReinsurance(@Param() params: ContractIdDto) {
+    const contract = await this.reinsurance.releaseContract(params.contractId);
     return SerializationTransformer.transform(contract);
   }
 
@@ -135,8 +135,8 @@ export class InsuranceController {
   @ApiOperation({ summary: 'Cancel an active policy' })
   @ApiParam({ name: 'policyId', description: 'ID of the policy to cancel' })
   @ApiOkResponse({ description: 'Policy cancelled' })
-  async cancelPolicy(@Param('policyId') policyId: string) {
-    const policy = await this.insurance.cancelPolicy(policyId);
+  async cancelPolicy(@Param() params: PolicyIdDto) {
+    const policy = await this.insurance.cancelPolicy(params.policyId);
     return SerializationTransformer.transform(policy);
   }
 
@@ -147,8 +147,8 @@ export class InsuranceController {
   @ApiOperation({ summary: 'Expire a policy' })
   @ApiParam({ name: 'policyId', description: 'ID of the policy to expire' })
   @ApiOkResponse({ description: 'Policy expired' })
-  async expirePolicy(@Param('policyId') policyId: string) {
-    const policy = await this.insurance.expirePolicy(policyId);
+  async expirePolicy(@Param() params: PolicyIdDto) {
+    const policy = await this.insurance.expirePolicy(params.policyId);
     return SerializationTransformer.transform(policy);
   }
 }
