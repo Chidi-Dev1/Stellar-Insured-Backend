@@ -97,7 +97,8 @@ export class UserRepository extends SoftDeleteRepository<
     updateData: Prisma.UserUpdateInput,
     tx?: TransactionClient,
   ): Promise<User> {
-    return this.delegate(tx).upsert({
+    const client: any = tx ?? this.prisma;
+    return client.user.upsert({
       where: { walletAddress },
       create: createData,
       update: updateData,
