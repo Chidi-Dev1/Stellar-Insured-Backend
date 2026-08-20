@@ -29,7 +29,8 @@ export class ProjectRepository extends SoftDeleteRepository<
     update: Prisma.ProjectUncheckedUpdateInput,
     tx?: TransactionClient,
   ): Promise<Project> {
-    return this.delegate(tx).upsert({
+    const client = tx ?? this.prisma;
+    return client.project.upsert({
       where: { contractId },
       create,
       update,
@@ -89,7 +90,8 @@ export class ContributionRepository extends SoftDeleteRepository<
     create: Prisma.ContributionUncheckedCreateInput,
     tx?: TransactionClient,
   ): Promise<Contribution> {
-    return this.delegate(tx).upsert({
+    const client = tx ?? this.prisma;
+    return client.contribution.upsert({
       where: { transactionHash },
       update: {},
       create,
