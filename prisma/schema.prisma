@@ -13,6 +13,24 @@ datasource db {
 // Insurance is the primary product domain for this service.
 // Legacy project/contribution models remain because the indexer,
 // reputation, and notification workflows still depend on them.
+//
+// ──────────────────────────────────────────────────────────────────────────────
+// SOFT-DELETE CONVENTION
+// ──────────────────────────────────────────────────────────────────────────────
+// Every model in this schema supports soft-delete via a `deletedAt` field.
+// Deleting a record sets `deletedAt = NOW()` rather than issuing a SQL DELETE.
+// The Prisma middleware (`createSoftDeleteMiddleware`) enforces this
+// automatically for all models listed in `SOFT_DELETE_MODELS`.
+//
+// Rules:
+//   1. A model that has `deletedAt` MUST also appear in `SOFT_DELETE_MODELS`.
+//   2. Every `deletedAt` field MUST have a corresponding `@@index([deletedAt])`.
+//   3. Hard deletes (purge) are only allowed through `SoftDeleteService`.
+//   4. To restore a record, use `SoftDeleteRepository.restore()` or
+//      `SoftDeleteService.restore()`.
+//
+// See SOFT_DELETE_GUIDE.md for the full lifecycle documentation.
+// ──────────────────────────────────────────────────────────────────────────────
 
 model User {
   id              String    @id @default(uuid())
@@ -22,6 +40,7 @@ model User {
   trustScore      Int       @default(500) @map("trust_score")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt       DateTime? @map("deleted_at")
 
   // Notification fields (encrypted at rest)
@@ -57,6 +76,7 @@ model Project {
   ipfsHash     String?       @map("ipfs_hash")
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt    DateTime?     @map("deleted_at")
 
   // Relations
@@ -80,6 +100,7 @@ model Contribution {
   timestamp       DateTime  @default(now())
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt       DateTime? @map("deleted_at")
 
   @@index([investorId])
@@ -100,6 +121,7 @@ model Milestone {
   completionDate DateTime?       @map("completion_date")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt      DateTime?       @map("deleted_at")
 
   @@index([projectId])
@@ -117,6 +139,7 @@ model ReputationHistory {
   timestamp   DateTime  @default(now())
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt   DateTime? @map("deleted_at")
 
   @@index([userId])
@@ -131,6 +154,7 @@ model Category {
   description String?
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt   DateTime? @map("deleted_at")
 
   @@index([deletedAt])
@@ -144,6 +168,7 @@ model InsurancePool {
   lockedCapital Decimal               @default(0) @map("locked_capital") @db.Decimal(18, 2)
   createdAt     DateTime              @default(now()) @map("created_at")
   updatedAt     DateTime              @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt     DateTime?             @map("deleted_at")
   policies      InsurancePolicy[]
   contracts     ReinsuranceContract[]
@@ -160,6 +185,7 @@ model ReinsuranceContract {
   premiumRate   Decimal           @map("premium_rate") @db.Decimal(10, 4)
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt     DateTime?         @map("deleted_at")
   policies      InsurancePolicy[]
 
@@ -184,6 +210,7 @@ model InsurancePolicy {
   endDate        DateTime?            @map("end_date")
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt      DateTime?            @map("deleted_at")
   claims         Claim[]
 
@@ -206,6 +233,7 @@ model Claim {
   description  String?
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt    DateTime?       @map("deleted_at")
 
   @@index([policyId])
@@ -230,6 +258,7 @@ model AuditLog {
   correlationId   String?     @map("correlation_id")
   timestamp       DateTime    @default(now())
   createdAt       DateTime    @default(now()) @map("created_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt       DateTime?   @map("deleted_at")
 
   @@index([userId])
@@ -307,6 +336,7 @@ model RefreshToken {
   fingerprint   String?   // Device/session fingerprint for abuse detection
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt     DateTime? @map("deleted_at")
 
   @@index([userId])
@@ -324,6 +354,7 @@ model LedgerCursor {
   lastLedgerHash String?   @map("last_ledger_hash")
   updatedAt      DateTime  @updatedAt @map("updated_at")
   createdAt      DateTime  @default(now()) @map("created_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt      DateTime? @map("deleted_at")
 
   @@index([deletedAt])
@@ -339,6 +370,7 @@ model ProcessedEvent {
   eventType       String    @map("event_type")
   transactionHash String    @map("transaction_hash")
   processedAt     DateTime  @default(now()) @map("processed_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt       DateTime? @map("deleted_at")
 
   @@index([network, ledgerSeq])
@@ -358,6 +390,7 @@ model QuarantinedEvent {
   rawXdr          String   @map("raw_xdr")
   reason          String
   createdAt       DateTime @default(now()) @map("created_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt       DateTime? @map("deleted_at")
 
   @@index([network, ledgerSeq])
@@ -373,6 +406,7 @@ model IndexerLog {
   metadata  Json?
   timestamp DateTime  @default(now())
   createdAt DateTime  @default(now()) @map("created_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt DateTime? @map("deleted_at")
 
   @@index([timestamp])
@@ -392,6 +426,7 @@ model NotificationSetting {
   notifyDeadlines     Boolean   @default(true) @map("notify_deadlines")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt           DateTime? @map("deleted_at")
 
   @@index([deletedAt])
@@ -408,6 +443,7 @@ model Notification {
   read      Boolean          @default(false)
   data      Json? // Optional metadata (e.g., projectId)
   createdAt DateTime         @default(now()) @map("created_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt DateTime?        @map("deleted_at")
 
   @@index([userId])
@@ -426,6 +462,7 @@ model EmailOutbox {
   lastError String?     @map("last_error")
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt DateTime?   @map("deleted_at")
 
   @@index([status])
@@ -444,6 +481,7 @@ model IdempotencyKey {
   status      String    @default("PENDING")
   expiresAt   DateTime  @map("expires_at")
   createdAt   DateTime  @default(now()) @map("created_at")
+  /// Soft-delete timestamp. NULL = live record. See SOFT_DELETE_GUIDE.md.
   deletedAt   DateTime? @map("deleted_at")
 
   @@index([expiresAt])

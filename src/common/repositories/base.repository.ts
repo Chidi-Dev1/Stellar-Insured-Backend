@@ -53,6 +53,22 @@ export abstract class BaseRepository<T, ID = string> implements IRepository<
     return this.delegate(tx).update({ where: { id }, data }) as Promise<T>;
   }
 
+  /**
+   * Soft-delete a record by its primary key.
+   *
+   * Despite the name, this issues a `prisma[model].delete()` which the
+   * soft-delete middleware intercepts and converts to:
+   *
+   *   `UPDATE … SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL`
+   *
+   * The row is **not** removed from the database — it is hidden from standard
+   * queries but can be recovered via `SoftDeleteRepository.restore()` or
+   * `SoftDeleteService.restore()`.
+   *
+   * To permanently remove a row, use `SoftDeleteService.hardDelete()`.
+   *
+   * See SOFT_DELETE_GUIDE.md §5.2
+   */
   async delete(id: ID, tx?: TransactionClient): Promise<T> {
     return this.delegate(tx).delete({ where: { id } }) as Promise<T>;
   }
