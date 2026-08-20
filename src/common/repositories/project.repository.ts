@@ -50,7 +50,8 @@ export class ProjectRepository extends SoftDeleteRepository<
     data: Prisma.ProjectUncheckedUpdateInput,
     tx?: TransactionClient,
   ): Promise<Project> {
-    return this.delegate(tx).update({ where: { id }, data });
+    const client = tx ?? this.prisma;
+    return client.project.update({ where: { id }, data });
   }
 
   async countCompleted(

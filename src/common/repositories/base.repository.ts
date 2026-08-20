@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma.service';
 import { IRepository, TransactionClient } from './repository.interface';
 
 /**
- * Generic base repository.
+ * Generic base repository with full Prisma type safety.
  *
  * Subclasses must supply `modelName` (the Prisma delegate key, e.g. "user",
  * "insurancePolicy") and may override any method to add model-specific logic.
@@ -11,10 +11,12 @@ import { IRepository, TransactionClient } from './repository.interface';
  * Every method accepts an optional `tx` so the caller can enlist the
  * repository in a Prisma interactive transaction.
  */
-export abstract class BaseRepository<T, ID = string> implements IRepository<
+export abstract class BaseRepository<
   T,
-  ID
-> {
+  CreateInput extends Record<string, unknown>,
+  UpdateInput extends Record<string, unknown>,
+  ID = string
+> implements IRepository<T, CreateInput, UpdateInput, ID> {
   constructor(
     protected readonly prisma: PrismaService,
     /** Key on the PrismaClient delegate, e.g. "user" */
