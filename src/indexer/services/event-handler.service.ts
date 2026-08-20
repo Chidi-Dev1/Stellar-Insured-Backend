@@ -54,39 +54,47 @@ class ProjectCreatedHandler implements IEventHandler {
       `Processing PROJECT_CREATED: Project ${data.projectId} by ${data.creator}`,
     );
 
-    // Execute all database operations atomically in a transaction
-    const project = await this.projectRepository.transaction(async (tx) => {
-      const user = await this.userRepository.upsertByWallet(
-        data.creator,
-        { walletAddress: data.creator, reputationScore: 0 },
-        {},
-        tx
-      );
+    try {
+      // Execute all database operations atomically in a transaction
+      const project = await this.projectRepository.transaction(async (tx) => {
+        const user = await this.userRepository.upsertByWallet(
+          data.creator,
+          { walletAddress: data.creator, reputationScore: 0 },
+          {},
+          tx
+        );
 
-      return await this.projectRepository.upsertByContractId(
-        data.projectId.toString(),
-        {
-          contractId: data.projectId.toString(),
-          creatorId: user.id,
-          title: `Project ${data.projectId}`,
-          category: 'uncategorized',
-          goal: BigInt(data.fundingGoal),
-          deadline: new Date(data.deadline * 1000),
-          status: 'ACTIVE',
-        },
-        {
-          title: `Project ${data.projectId}`,
-          category: 'uncategorized',
-          goal: BigInt(data.fundingGoal),
-          deadline: new Date(data.deadline * 1000),
-          status: 'ACTIVE',
-        },
-        tx
-      );
-    });
+        return await this.projectRepository.upsertByContractId(
+          data.projectId.toString(),
+          {
+            contractId: data.projectId.toString(),
+            creatorId: user.id,
+            title: `Project ${data.projectId}`,
+            category: 'uncategorized',
+            goal: BigInt(data.fundingGoal),
+            deadline: new Date(data.deadline * 1000),
+            status: 'ACTIVE',
+          },
+          {
+            title: `Project ${data.projectId}`,
+            category: 'uncategorized',
+            goal: BigInt(data.fundingGoal),
+            deadline: new Date(data.deadline * 1000),
+            status: 'ACTIVE',
+          },
+          tx
+        );
+      });
 
-    updateTracingContext({ entityId: project.id });
-    this.logger.log(`Created/updated project ${data.projectId}`);
+      updateTracingContext({ entityId: project.id });
+      this.logger.log(`Successfully processed PROJECT_CREATED: Project ${data.projectId}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process PROJECT_CREATED for project ${data.projectId}`,
+        error instanceof Error ? error.stack : String(error)
+      );
+      throw error; // Re-throw to let the indexer handle retry logic
+    }
   }
 }
 
@@ -115,75 +123,83 @@ class ContributionMadeHandler implements IEventHandler {
       `Processing CONTRIBUTION_MADE: ${data.amount} to project ${data.projectId} from ${data.contributor}`,
     );
 
-    const project = await this.projectRepository.findByContractId(
-      data.projectId.toString(),
-    );
-    if (!project) {
-      this.logger.warn(`Project ${data.projectId} not found for contribution`);
-      return;
-    }
-
-    updateTracingContext({ entityId: project.id });
-
-    // Execute all database operations atomically in a transaction
-    await this.contributionRepository.transaction(async (tx) => {
-      const user = await this.userRepository.upsertByWallet(
-        data.contributor,
-        { walletAddress: data.contributor, reputationScore: 0 },
-        {},
-        tx
-      );
-
-      await this.contributionRepository.upsertByTxHash(
-        event.transactionHash,
-        {
-          transactionHash: event.transactionHash,
-          investorId: user.id,
-          projectId: project.id,
-          amount: BigInt(data.amount),
-          timestamp: event.ledgerClosedAt,
-        },
-        tx
-      );
-
-      await this.projectRepository.updateById(
-        project.id,
-        { currentFunds: BigInt(data.totalRaised) },
-        tx
-      );
-    });
-
     try {
-      await this.notificationService.notify(
-        user.id,
-        NotificationType.CONTRIBUTION,
-        'Contribution Successful!',
-        `Your contribution of ${data.amount} to project ${project.title} was successful.`,
-        { projectId: project.id, amount: data.amount },
+      const project = await this.projectRepository.findByContractId(
+        data.projectId.toString(),
       );
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      this.logger.error(
-        `Failed to send contribution notification to user ${user.id}: ${message}`,
-      );
-    }
+      if (!project) {
+        this.logger.warn(`Project ${data.projectId} not found for contribution`);
+        return;
+      }
 
-    try {
-      await this.reputationService.adjustReputation(
-        user.id,
-        REPUTATION_DELTAS.CONTRIBUTION_SUCCESS,
-        `Contribution of ${data.amount} to project ${data.projectId} recorded on-chain`,
-      );
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      this.logger.error(
-        `Failed to adjust reputation for contribution by user ${user.id}: ${message}`,
-      );
-    }
+      updateTracingContext({ entityId: project.id });
 
-    this.logger.log(
-      `Recorded contribution of ${data.amount} for project ${data.projectId}`,
-    );
+      // Execute all database operations atomically in a transaction
+      await this.contributionRepository.transaction(async (tx) => {
+        const user = await this.userRepository.upsertByWallet(
+          data.contributor,
+          { walletAddress: data.contributor, reputationScore: 0 },
+          {},
+          tx
+        );
+
+        await this.contributionRepository.upsertByTxHash(
+          event.transactionHash,
+          {
+            transactionHash: event.transactionHash,
+            investorId: user.id,
+            projectId: project.id,
+            amount: BigInt(data.amount),
+            timestamp: event.ledgerClosedAt,
+          },
+          tx
+        );
+
+        await this.projectRepository.updateById(
+          project.id,
+          { currentFunds: BigInt(data.totalRaised) },
+          tx
+        );
+      });
+
+      try {
+        await this.notificationService.notify(
+          user.id,
+          NotificationType.CONTRIBUTION,
+          'Contribution Successful!',
+          `Your contribution of ${data.amount} to project ${project.title} was successful.`,
+          { projectId: project.id, amount: data.amount },
+        );
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        this.logger.error(
+          `Failed to send contribution notification to user ${user.id}: ${message}`,
+        );
+      }
+
+      try {
+        await this.reputationService.adjustReputation(
+          user.id,
+          REPUTATION_DELTAS.CONTRIBUTION_SUCCESS,
+          `Contribution of ${data.amount} to project ${data.projectId} recorded on-chain`,
+        );
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        this.logger.error(
+          `Failed to adjust reputation for contribution by user ${user.id}: ${message}`,
+        );
+      }
+
+      this.logger.log(
+        `Successfully processed CONTRIBUTION_MADE for project ${data.projectId}, tx: ${event.transactionHash}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to process CONTRIBUTION_MADE for project ${data.projectId}, tx: ${event.transactionHash}`,
+        error instanceof Error ? error.stack : String(error)
+      );
+      throw error; // Re-throw to let the indexer handle retry logic
+    }
   }
 }
 
