@@ -110,12 +110,6 @@ class ContributionMadeHandler implements IEventHandler {
       `Processing CONTRIBUTION_MADE: ${data.amount} to project ${data.projectId} from ${data.contributor}`,
     );
 
-    const user = await this.userRepository.upsertByWallet(
-      data.contributor,
-      { walletAddress: data.contributor, reputationScore: 0 },
-      {},
-    );
-
     const project = await this.projectRepository.findByContractId(
       data.projectId.toString(),
     );
@@ -126,16 +120,32 @@ class ContributionMadeHandler implements IEventHandler {
 
     updateTracingContext({ entityId: project.id });
 
-    await this.contributionRepository.upsertByTxHash(event.transactionHash, {
-      transactionHash: event.transactionHash,
-      investorId: user.id,
-      projectId: project.id,
-      amount: BigInt(data.amount),
-      timestamp: event.ledgerClosedAt,
-    });
+    // Execute all database operations atomically in a transaction
+    await this.contributionRepository.transaction(async (tx) => {
+      const user = await this.userRepository.upsertByWallet(
+        data.contributor,
+        { walletAddress: data.contributor, reputationScore: 0 },
+        {},
+        tx
+      );
 
-    await this.projectRepository.updateById(project.id, {
-      currentFunds: BigInt(data.totalRaised),
+      await this.contributionRepository.upsertByTxHash(
+        event.transactionHash,
+        {
+          transactionHash: event.transactionHash,
+          investorId: user.id,
+          projectId: project.id,
+          amount: BigInt(data.amount),
+          timestamp: event.ledgerClosedAt,
+        },
+        tx
+      );
+
+      await this.projectRepository.updateById(
+        project.id,
+        { currentFunds: BigInt(data.totalRaised) },
+        tx
+      );
     });
 
     try {
