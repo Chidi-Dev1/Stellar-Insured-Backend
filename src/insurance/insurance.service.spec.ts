@@ -17,6 +17,7 @@ interface MockPrismaService {
 
 interface MockPolicyRepository {
   findById: jest.Mock;
+  findActiveOrPendingByUserAndPool: jest.Mock;
   createPolicy: jest.Mock;
   updateStatus: jest.Mock;
 }
@@ -35,21 +36,12 @@ describe('InsuranceService', () => {
   let policyRepository: MockPolicyRepository;
   let notifications: MockNotificationService;
 
-  /**
-   * purchasePolicy opens its unit of work with `tx.insurancePolicy.findFirst`,
-   * so the mocked transaction client must expose it (returns null by default
-   * so the create path runs).
-   */
-  const mockTx = (existingPolicy: unknown = null) => ({
-    insurancePolicy: { findFirst: jest.fn().mockResolvedValue(existingPolicy) },
-  });
-
   beforeEach(() => {
     pricing = { calculatePremium: jest.fn() } as unknown as PricingService;
     pools = { lockCapital: jest.fn(), unlockCapital: jest.fn() } as unknown as PoolService;
 
     prisma = {
-      $transaction: jest.fn().mockImplementation(async (fn: any) => fn()),
+      $transaction: jest.fn().mockImplementation(async (fn: any) => fn({})),
     };
 
     auditService = {
@@ -59,6 +51,7 @@ describe('InsuranceService', () => {
 
     policyRepository = {
       findById: jest.fn(),
+      findActiveOrPendingByUserAndPool: jest.fn().mockResolvedValue(null),
       createPolicy: jest.fn(),
       updateStatus: jest.fn(),
     };
@@ -77,6 +70,7 @@ describe('InsuranceService', () => {
       notifications as unknown as NotificationService,
     );
     jest.clearAllMocks();
+    policyRepository.findActiveOrPendingByUserAndPool.mockResolvedValue(null);
     notifications.prepareNotification.mockResolvedValue(null);
     notifications.dispatchPrepared.mockResolvedValue(undefined);
   });
@@ -109,8 +103,6 @@ describe('InsuranceService', () => {
       (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
       policyRepository.createPolicy.mockResolvedValue(createdPolicy);
 
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx()));
-
       const result = await service.purchasePolicy(
         'user-1',
         'pool-1',
@@ -123,6 +115,12 @@ describe('InsuranceService', () => {
         new Prisma.Decimal(10000),
       );
       expect(pools.lockCapital).toHaveBeenCalled();
+      expect(policyRepository.findActiveOrPendingByUserAndPool).toHaveBeenCalledWith(
+        'user-1',
+        'pool-1',
+        expect.any(Object),
+      );
+      expect(policyRepository.createPolicy).toHaveBeenCalledTimes(1);
       expect(policyRepository.createPolicy).toHaveBeenCalledWith(
         {
           userId: 'user-1',
@@ -139,7 +137,6 @@ describe('InsuranceService', () => {
     it('should rollback transaction on lockCapital error and skip notifications', async () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(new Prisma.Decimal(500));
       (pools.lockCapital as jest.Mock).mockRejectedValue(new Error('Pool capital insufficient'));
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx()));
 
       await expect(
         service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(10000)),
@@ -153,7 +150,6 @@ describe('InsuranceService', () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(new Prisma.Decimal(500));
       (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
       policyRepository.createPolicy.mockResolvedValue({ id: 'policy-1' });
-      prisma.$transaction.mockImplementation(async (fn: any) => fn(mockTx()));
 
       await service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, new Prisma.Decimal(10000));
 
@@ -182,9 +178,8 @@ describe('InsuranceService', () => {
         // Track execution order across the mocked transaction and the post-commit dispatch.
         const order: string[] = [];
         prisma.$transaction.mockImplementation(async (fn: any) => {
-          const tx = mockTx();
           order.push('transaction-start');
-          const result = await fn(tx);
+          const result = await fn({});
           order.push('transaction-commit');
           return result;
         });
@@ -209,14 +204,7 @@ describe('InsuranceService', () => {
 
       it('does not dispatch when the purchase is a no-op duplicate (existing active policy)', async () => {
         const existing = { id: 'policy-0', userId: 'user-1', poolId: 'pool-1' };
-        // findFirst returns the existing policy -> create/lock/notify skipped.
-        prisma.$transaction.mockImplementation(async (fn: any) =>
-          fn({
-            insurancePolicy: {
-              findFirst: jest.fn().mockResolvedValue(existing),
-            },
-          }),
-        );
+        policyRepository.findActiveOrPendingByUserAndPool.mockResolvedValue(existing);
 
         const result = await service.purchasePolicy(
           'user-1',
@@ -230,29 +218,32 @@ describe('InsuranceService', () => {
         expect(notifications.prepareNotification).not.toHaveBeenCalled();
         expect(notifications.dispatchPrepared).not.toHaveBeenCalled();
       });
-
-
     });
   });
 
   describe('cancelPolicy', () => {
     it('should throw BadRequestException if policy not found', async () => {
       policyRepository.findById.mockResolvedValue(null);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await expect(service.cancelPolicy('missing')).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw BadRequestException if policy already cancelled', async () => {
-      policyRepository.findById.mockResolvedValue({
+    it('returns the existing policy when it is already cancelled', async () => {
+      const cancelled = {
         id: 'policy-1',
         status: PolicyStatus.CANCELLED,
         poolId: 'pool-1',
         coverageAmount: new Prisma.Decimal(10000),
-      });
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      };
+      policyRepository.findById.mockResolvedValue(cancelled);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
-      await expect(service.cancelPolicy('policy-1')).rejects.toThrow(BadRequestException);
+      const result = await service.cancelPolicy('policy-1');
+
+      expect(result).toBe(cancelled);
+      expect(policyRepository.updateStatus).not.toHaveBeenCalled();
+      expect(pools.unlockCapital).not.toHaveBeenCalled();
     });
 
     it('should cancel policy and unlock capital', async () => {
@@ -267,7 +258,7 @@ describe('InsuranceService', () => {
       policyRepository.findById.mockResolvedValue(policy);
       policyRepository.updateStatus.mockResolvedValue(cancelled);
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       const result = await service.cancelPolicy('policy-1');
 
@@ -283,21 +274,26 @@ describe('InsuranceService', () => {
   describe('expirePolicy', () => {
     it('should throw BadRequestException if policy not found', async () => {
       policyRepository.findById.mockResolvedValue(null);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await expect(service.expirePolicy('missing')).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw BadRequestException if policy already expired', async () => {
-      policyRepository.findById.mockResolvedValue({
+    it('returns the existing policy when it is already expired', async () => {
+      const expired = {
         id: 'policy-1',
         status: PolicyStatus.EXPIRED,
         poolId: 'pool-1',
         coverageAmount: new Prisma.Decimal(10000),
-      });
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      };
+      policyRepository.findById.mockResolvedValue(expired);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
-      await expect(service.expirePolicy('policy-1')).rejects.toThrow(BadRequestException);
+      const result = await service.expirePolicy('policy-1');
+
+      expect(result).toBe(expired);
+      expect(policyRepository.updateStatus).not.toHaveBeenCalled();
+      expect(pools.unlockCapital).not.toHaveBeenCalled();
     });
 
     it('should expire policy and unlock capital', async () => {
@@ -312,7 +308,7 @@ describe('InsuranceService', () => {
       policyRepository.findById.mockResolvedValue(policy);
       policyRepository.updateStatus.mockResolvedValue(expired);
       (pools.unlockCapital as jest.Mock).mockResolvedValue(undefined);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       const result = await service.expirePolicy('policy-1');
 

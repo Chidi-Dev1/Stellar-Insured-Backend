@@ -67,15 +67,15 @@ export class InsuranceService {
     let purchaseNotification: PreparedNotification | null = null;
 
     const created = await this.prisma.$transaction(async tx => {
-      const existingPolicy = await tx.insurancePolicy.findFirst({
-        where: {
+      // Single write path: the idempotency check and the insert both go
+      // through InsurancePolicyRepository. A second `tx.insurancePolicy.create`
+      // here would double-bill and duplicate ledger / audit rows.
+      const existingPolicy =
+        await this.policyRepository.findActiveOrPendingByUserAndPool(
           userId,
           poolId,
-          status: {
-            in: [PolicyStatus.ACTIVE, PolicyStatus.PENDING],
-          },
-        },
-      });
+          tx,
+        );
 
       if (existingPolicy) {
         return existingPolicy;
@@ -118,7 +118,10 @@ export class InsuranceService {
 
     // Commit boundary — queue notification jobs only after the transaction
     // committed. Best-effort: a queue failure never fails the purchase.
-    await this.notifications.dispatchPrepared(purchaseNotification);
+    // Duplicate (idempotent) purchases leave this null and must not enqueue.
+    if (purchaseNotification) {
+      await this.notifications.dispatchPrepared(purchaseNotification);
+    }
 
     return created;
   }
