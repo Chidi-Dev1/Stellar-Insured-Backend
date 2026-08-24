@@ -14,9 +14,13 @@ import { BaseRepository } from './base.repository';
  * the rare cases where a service needs to *explicitly* stamp `deletedAt` on
  * a batch of rows (e.g. cascade soft-delete) or restore a record.
  */
-export abstract class SoftDeleteRepository<T, ID = string>
-  extends BaseRepository<T, ID>
-  implements ISoftDeleteRepository<T, ID>
+export abstract class SoftDeleteRepository<
+  T,
+  CreateInput extends Record<string, unknown> = Record<string, unknown>,
+  UpdateInput extends Record<string, unknown> = Record<string, unknown>,
+  ID = string
+> extends BaseRepository<T, CreateInput, UpdateInput, ID>
+  implements ISoftDeleteRepository<T, CreateInput, UpdateInput, ID>
 {
   constructor(prisma: PrismaService, modelName: string) {
     super(prisma, modelName);

@@ -135,7 +135,7 @@ class ContributionMadeHandler implements IEventHandler {
       updateTracingContext({ entityId: project.id });
 
       // Execute all database operations atomically in a transaction
-      await this.contributionRepository.transaction(async (tx) => {
+      const user = await this.contributionRepository.transaction(async (tx) => {
         const user = await this.userRepository.upsertByWallet(
           data.contributor,
           { walletAddress: data.contributor, reputationScore: 0 },
@@ -160,6 +160,8 @@ class ContributionMadeHandler implements IEventHandler {
           { currentFunds: BigInt(data.totalRaised) },
           tx
         );
+
+        return user;
       });
 
       try {

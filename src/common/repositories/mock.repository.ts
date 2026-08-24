@@ -19,7 +19,12 @@ import {
 export class MockRepository<
   T extends { id: string },
   ID = string,
-> implements ISoftDeleteRepository<T, ID> {
+> implements ISoftDeleteRepository<
+  T,
+  Record<string, unknown>,
+  Record<string, unknown>,
+  ID
+> {
   protected store = new Map<string, T>();
 
   /** Pre-populate the store with seed records. */

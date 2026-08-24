@@ -13,8 +13,8 @@ import { IRepository, TransactionClient } from './repository.interface';
  */
 export abstract class BaseRepository<
   T,
-  CreateInput extends Record<string, unknown>,
-  UpdateInput extends Record<string, unknown>,
+  CreateInput extends Record<string, unknown> = Record<string, unknown>,
+  UpdateInput extends Record<string, unknown> = Record<string, unknown>,
   ID = string
 > implements IRepository<T, CreateInput, UpdateInput, ID> {
   constructor(

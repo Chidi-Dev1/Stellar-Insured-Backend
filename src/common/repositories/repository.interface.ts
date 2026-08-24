@@ -16,8 +16,8 @@ export type TransactionClient = Prisma.TransactionClient;
  */
 export interface IRepository<
   T,
-  CreateInput extends Record<string, unknown>,
-  UpdateInput extends Record<string, unknown>,
+  CreateInput extends Record<string, unknown> = Record<string, unknown>,
+  UpdateInput extends Record<string, unknown> = Record<string, unknown>,
   ID = string
 > {
   findById(id: ID, tx?: TransactionClient): Promise<T | null>;
@@ -43,8 +43,8 @@ export interface IRepository<
  */
 export interface ISoftDeleteRepository<
   T,
-  CreateInput extends Record<string, unknown>,
-  UpdateInput extends Record<string, unknown>,
+  CreateInput extends Record<string, unknown> = Record<string, unknown>,
+  UpdateInput extends Record<string, unknown> = Record<string, unknown>,
   ID = string
 > extends IRepository<T, CreateInput, UpdateInput, ID> {
   softDelete(id: ID, tx?: TransactionClient): Promise<T>;
