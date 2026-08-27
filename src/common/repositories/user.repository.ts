@@ -15,7 +15,11 @@ export type UserWithSettings = User & {
 };
 
 @Injectable()
-export class UserRepository extends SoftDeleteRepository<User> {
+export class UserRepository extends SoftDeleteRepository<
+  User,
+  Prisma.UserCreateInput,
+  Prisma.UserUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'user');
   }
@@ -93,7 +97,8 @@ export class UserRepository extends SoftDeleteRepository<User> {
     updateData: Prisma.UserUpdateInput,
     tx?: TransactionClient,
   ): Promise<User> {
-    return this.delegate(tx).upsert({
+    const client = tx ?? this.prisma;
+    return client.user.upsert({
       where: { walletAddress },
       create: createData,
       update: updateData,

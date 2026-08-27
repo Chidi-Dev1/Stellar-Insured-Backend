@@ -138,7 +138,7 @@ export class ClaimService {
         );
       }
 
-      const oracleVerified = await this.verifyOracle(claimId, tx);
+      const oracleVerified = await this.verifyOracle(claim, tx);
       if (!oracleVerified) {
         const reason = 'Oracle verification failed';
         return await this.rejectClaim(
@@ -284,15 +284,19 @@ export class ClaimService {
     return fraudIndicators.length >= 2;
   }
 
+  /**
+   * Oracle checks use the claim already loaded by `assessClaim`. Re-querying
+   * via `findByIdWithPolicy` (or a raw `tx.claim.findUnique`) would hit the
+   * same row twice and can diverge from the in-transaction snapshot.
+   */
   private async verifyOracle(
-    claimId: string,
+    claim: ClaimWithPolicy,
     tx: TransactionClient,
   ): Promise<boolean> {
     try {
-      const claim = await this.claimRepository.findByIdWithPolicy(claimId, tx);
-      if (!claim || !claim.policy) return false;
-
       const policy = claim.policy;
+      if (!policy) return false;
+
       const now = new Date();
       if (
         policy.status !== PolicyStatus.ACTIVE ||
@@ -313,7 +317,7 @@ export class ClaimService {
       await this.auditService.log(
         AuditAction.ORACLE_VERIFIED,
         'Claim',
-        claimId,
+        claim.id,
         undefined,
         undefined,
         undefined,

@@ -86,7 +86,7 @@ describe('ClaimService', () => {
     };
 
     prisma = {
-      $transaction: jest.fn().mockImplementation(async (fn: any) => fn()),
+      $transaction: jest.fn().mockImplementation(async (fn: any) => fn({})),
     };
 
     pools = { unlockCapital: jest.fn() };
@@ -215,7 +215,7 @@ describe('ClaimService', () => {
   describe('assessClaim', () => {
     it('should throw NotFoundException if claim does not exist', async () => {
       claimRepository.findByIdWithPolicy.mockResolvedValue(null);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await expect(service.assessClaim('nonexistent')).rejects.toThrow(NotFoundException);
     });
@@ -241,7 +241,7 @@ describe('ClaimService', () => {
       claimRepository.countDuplicates.mockResolvedValue(0);
       claimRepository.countRecent.mockResolvedValue(0);
       pools.unlockCapital.mockResolvedValue(undefined);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       const result = await service.assessClaim('claim-1');
 
@@ -290,7 +290,7 @@ describe('ClaimService', () => {
       claimRepository.countDuplicates.mockResolvedValue(0);
       claimRepository.countRecent.mockResolvedValue(0);
       pools.unlockCapital.mockResolvedValue(undefined);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       const result = await service.assessClaim('claim-1');
 
@@ -322,11 +322,12 @@ describe('ClaimService', () => {
       claimRepository.countDuplicates.mockResolvedValue(0);
       claimRepository.countRecent.mockResolvedValue(0);
       claimRepository.updateStatusWithPolicy.mockResolvedValue(approvedClaim);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       const result = await service.assessClaim('claim-1');
 
       expect(result.status).toBe(ClaimStatus.APPROVED);
+      expect(claimRepository.findByIdWithPolicy).toHaveBeenCalledTimes(1);
       expect(auditService.logApprove).toHaveBeenCalledWith(
         'Claim',
         'claim-1',
@@ -353,6 +354,32 @@ describe('ClaimService', () => {
       expect(notifications.dispatchPrepared).toHaveBeenCalledWith([]);
     });
 
+    it('should reject claim if oracle verification fails without a second claim lookup', async () => {
+      const expiredPolicy = { ...mockPolicy, endDate: new Date('2020-01-01') };
+      const claim = { ...mockClaim, policy: expiredPolicy };
+      const rejectedClaim = { ...claim, status: ClaimStatus.REJECTED };
+
+      claimRepository.findByIdWithPolicy.mockResolvedValue(claim);
+      claimRepository.updateStatusWithPolicy.mockResolvedValue(rejectedClaim);
+      claimRepository.countDuplicates.mockResolvedValue(0);
+      claimRepository.countRecent.mockResolvedValue(0);
+      pools.unlockCapital.mockResolvedValue(undefined);
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
+
+      const result = await service.assessClaim('claim-1');
+
+      expect(result.status).toBe(ClaimStatus.REJECTED);
+      expect(claimRepository.findByIdWithPolicy).toHaveBeenCalledTimes(1);
+      expect(auditService.logReject).toHaveBeenCalledWith(
+        'Claim',
+        'claim-1',
+        expect.any(Object),
+        rejectedClaim,
+        'Oracle verification failed',
+        expect.any(Object),
+      );
+    });
+
     it('should detect fraud and log when >= 2 indicators present', async () => {
       const claim = {
         ...mockClaim,
@@ -368,10 +395,11 @@ describe('ClaimService', () => {
       claimRepository.countDuplicates.mockResolvedValue(1);
       claimRepository.countRecent.mockResolvedValue(4);
       claimRepository.updateStatusWithPolicy.mockResolvedValue(approvedClaim);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await service.assessClaim('claim-1');
 
+      expect(claimRepository.findByIdWithPolicy).toHaveBeenCalledTimes(1);
       expect(auditService.log).toHaveBeenCalledWith(
         expect.anything(),
         'Claim',
@@ -394,7 +422,7 @@ describe('ClaimService', () => {
   describe('payClaim', () => {
     it('should throw NotFoundException if claim does not exist', async () => {
       claimRepository.findByIdWithPolicy.mockResolvedValue(null);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await expect(service.payClaim('nonexistent')).rejects.toThrow(NotFoundException);
     });
@@ -405,7 +433,7 @@ describe('ClaimService', () => {
       claimRepository.findByIdWithPolicy.mockResolvedValue(mockClaim);
       claimRepository.updateStatusWithPolicy.mockResolvedValue(paidClaim);
       pools.unlockCapital.mockResolvedValue(undefined);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       const result = await service.payClaim('claim-1');
 
@@ -423,7 +451,7 @@ describe('ClaimService', () => {
       claimRepository.findByIdWithPolicy.mockResolvedValue(mockClaim);
       claimRepository.updateStatusWithPolicy.mockResolvedValue(paidClaim);
       pools.unlockCapital.mockResolvedValue(undefined);
-      prisma.$transaction.mockImplementation(async (fn: any) => fn());
+      prisma.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await service.payClaim('claim-1');
 
@@ -449,7 +477,7 @@ describe('ClaimService', () => {
       const order: string[] = [];
       prisma.$transaction.mockImplementation(async (fn: any) => {
         order.push('transaction-start');
-        const result = await fn();
+        const result = await fn({});
         order.push('transaction-commit');
         return result;
       });

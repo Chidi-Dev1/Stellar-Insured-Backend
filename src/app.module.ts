@@ -23,6 +23,7 @@ import { NotificationModule } from './notification/notification.module';
 import { EncryptionModule } from './encryption/encryption.module';
 import { StorageModule } from './storage/storage.module';
 import { InsuranceModule } from './insurance/insurance.module';
+import { HealthModule } from './health/health.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AppThrottlerGuard } from './auth/guards/app-throttler.guard';
@@ -76,6 +77,7 @@ import { IdempotencyCleanupTask } from './interceptors/tasks/idempotency-cleanup
     EncryptionModule,
     StorageModule,
     InsuranceModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [
