@@ -7,7 +7,11 @@ import { TransactionClient } from '../repositories/repository.interface';
 // ─── ProjectRepository ───────────────────────────────────────────────────────
 
 @Injectable()
-export class ProjectRepository extends SoftDeleteRepository<Project> {
+export class ProjectRepository extends SoftDeleteRepository<
+  Project,
+  Prisma.ProjectUncheckedCreateInput,
+  Prisma.ProjectUncheckedUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'project');
   }
@@ -25,7 +29,8 @@ export class ProjectRepository extends SoftDeleteRepository<Project> {
     update: Prisma.ProjectUncheckedUpdateInput,
     tx?: TransactionClient,
   ): Promise<Project> {
-    return this.delegate(tx).upsert({
+    const client = tx ?? this.prisma;
+    return client.project.upsert({
       where: { contractId },
       create,
       update,
@@ -45,7 +50,8 @@ export class ProjectRepository extends SoftDeleteRepository<Project> {
     data: Prisma.ProjectUncheckedUpdateInput,
     tx?: TransactionClient,
   ): Promise<Project> {
-    return this.delegate(tx).update({ where: { id }, data });
+    const client = tx ?? this.prisma;
+    return client.project.update({ where: { id }, data });
   }
 
   async countCompleted(
@@ -71,7 +77,11 @@ export class ProjectRepository extends SoftDeleteRepository<Project> {
 // ─── ContributionRepository ──────────────────────────────────────────────────
 
 @Injectable()
-export class ContributionRepository extends SoftDeleteRepository<Contribution> {
+export class ContributionRepository extends SoftDeleteRepository<
+  Contribution,
+  Prisma.ContributionUncheckedCreateInput,
+  Prisma.ContributionUncheckedUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'contribution');
   }
@@ -81,7 +91,8 @@ export class ContributionRepository extends SoftDeleteRepository<Contribution> {
     create: Prisma.ContributionUncheckedCreateInput,
     tx?: TransactionClient,
   ): Promise<Contribution> {
-    return this.delegate(tx).upsert({
+    const client = tx ?? this.prisma;
+    return client.contribution.upsert({
       where: { transactionHash },
       update: {},
       create,
@@ -103,7 +114,11 @@ export class ContributionRepository extends SoftDeleteRepository<Contribution> {
 // ─── MilestoneRepository ─────────────────────────────────────────────────────
 
 @Injectable()
-export class MilestoneRepository extends SoftDeleteRepository<Milestone> {
+export class MilestoneRepository extends SoftDeleteRepository<
+  Milestone,
+  Prisma.MilestoneUncheckedCreateInput,
+  Prisma.MilestoneUncheckedUpdateInput
+> {
   constructor(prisma: PrismaService) {
     super(prisma, 'milestone');
   }
