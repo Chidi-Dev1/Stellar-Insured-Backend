@@ -75,7 +75,7 @@ export class NotificationController {
   @ApiParam({ name: 'userId', type: String, description: 'ID of the user' })
   @ApiOkResponse({ description: 'Notification settings for the user' })
   async getSettings(@Param() params: UserIdParamDto) {
-    const userId = typeof params === 'string' ? params : params.userId;
+    const userId = params.userId;
     await this.ensureActiveUser(userId);
 
     return this.prisma.notificationSetting.upsert({
@@ -96,7 +96,7 @@ export class NotificationController {
     @Param() params: UserIdParamDto,
     @Body() settings: UpdateNotificationSettingsDto,
   ) {
-    const userId = typeof params === 'string' ? params : params.userId;
+    const userId = params.userId;
     await this.ensureActiveUser(userId);
 
     const result = await this.prisma.notificationSetting.upsert({
@@ -137,7 +137,7 @@ export class NotificationController {
     @Param() params: UserIdParamDto,
     @Body() subscription: PushSubscriptionDto,
   ) {
-    const userId = typeof params === 'string' ? params : params.userId;
+    const userId = params.userId;
     // Validate subscription structure
     if (
       !subscription.endpoint ||
